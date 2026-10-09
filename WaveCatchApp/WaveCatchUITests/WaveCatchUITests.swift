@@ -79,9 +79,7 @@ final class WaveCatchUITests: XCTestCase {
 
         let newBest = app.staticTexts["newBest"]
         XCTAssertTrue(newBest.waitForExistence(timeout: 4), "NEW BEST was not on the game over card")
-        Thread.sleep(forTimeInterval: 1.25)
-        _ = XCUIScreen.main.screenshot()
-        Thread.sleep(forTimeInterval: 0.4)
+        Thread.sleep(forTimeInterval: 1.5)
         save("05-gameover")
         XCTAssertTrue(newBest.exists)
         XCTAssertEqual(newBest.label, "NEW BEST")
@@ -95,6 +93,7 @@ final class WaveCatchUITests: XCTestCase {
         expectation(for: backToZero, evaluatedWith: app.staticTexts["score"])
         waitForExpectations(timeout: 6)
         XCTAssertFalse(app.buttons["playAgainButton"].exists)
+        Thread.sleep(forTimeInterval: 1.2)
         save("06-restart")
         Thread.sleep(forTimeInterval: 2.6)
         mark("record-stop")
@@ -114,7 +113,10 @@ final class WaveCatchUITests: XCTestCase {
 
     private func save(_ name: String) {
         let shot = XCUIScreen.main.screenshot()
-        let data = landscapePNG(shot.image)
+        let image = shot.image
+        let pixelsW = image.size.width * image.scale
+        let pixelsH = image.size.height * image.scale
+        let data = pixelsW >= pixelsH ? shot.pngRepresentation : landscapePNG(image)
         let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.png")
         attachment.name = name
         attachment.lifetime = .keepAlways
