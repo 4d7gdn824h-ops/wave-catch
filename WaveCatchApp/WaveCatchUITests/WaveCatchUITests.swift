@@ -26,11 +26,6 @@ final class WaveCatchUITests: XCTestCase {
         let score = app.staticTexts["score"]
         XCTAssertTrue(score.waitForExistence(timeout: 6))
         XCTAssertFalse(app.buttons["debugGear"].exists)
-        for lane in ["upperLeft", "upperRight", "lowerLeft", "lowerRight"] {
-            let other = app.otherElements["corner.\(lane)"]
-            let button = app.buttons["corner.\(lane)"]
-            XCTAssertTrue(other.waitForExistence(timeout: 4) || button.waitForExistence(timeout: 2), "missing corner.\(lane)")
-        }
 
         var sawRing = false
         var sawMidgame = false
@@ -64,6 +59,12 @@ final class WaveCatchUITests: XCTestCase {
         XCTAssertTrue(sawJelly, "a jellyfish should appear in the proof run")
         XCTAssertTrue(sawMidgame, "score never left zero")
         XCTAssertTrue(sawCatch, "a second catch was not shown")
+
+        for lane in ["upperLeft", "upperRight", "lowerLeft", "lowerRight"] {
+            let other = app.otherElements["corner.\(lane)"]
+            let button = app.buttons["corner.\(lane)"]
+            XCTAssertTrue(other.waitForExistence(timeout: 4) || button.waitForExistence(timeout: 2), "missing corner.\(lane)")
+        }
 
         let elapsed = Date().timeIntervalSince(started)
         Thread.sleep(forTimeInterval: max(0, 32 - elapsed))
