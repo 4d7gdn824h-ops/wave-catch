@@ -1,0 +1,217 @@
+name: iOS
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Core tests
+        run: swift test --package-path WaveCatchCore
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        working-directory: WaveCatchApp
+        run: xcodegen generate
+
+      - name: Choose a simulator
+        id: sim
+        run: |
+          python3 - <<'PY'
+          import json, re, subprocess
+
+          def sh(*args):
+              return subprocess.check_output(args, text=True)
+
+          def version_of(text):
+              match = re.search(r"iOS[- ](\d+)(?:[.-](\d+))?", text)
+              if not match:
+                  return (0, 0)
+              return (int(match.group(1)), int(match.group(2) or 0))
+
+          devices = json.loads(sh("xcrun", "simctl", "list", "devices", "available", "-j"))
+          types = json.loads(sh("xcrun", "simctl", "list", "devicetypes", "-j")).get("devicetypes", [])
+          runtimes = [
+              runtime for runtime in json.loads(sh("xcrun", "simctl", "list", "runtimes", "available", "-j")).get("runtimes", [])
+              if runtime.get("isAvailable", True) and "iOS" in runtime.get("name", "") + runtime.get("identifier", "")
+          ]
+          runtimes.sort(key=lambda runtime: version_of(runtime.get("identifier", "") + runtime.get("name", "")))
+
+          wanted = ["iPhone 15 Pro Max", "iPhone 16 Pro Max"]
+          existing = {name: [] for name in wanted}
+          for runtime, group in devices.get("devices", {}).items():
+              if "iOS" not in runtime:
+                  continue
+              for device in group:
+                  if not device.get("isAvailable", True):
+                      continue
+                  name = device.get("name", "")
+                  if name in existing:
+                      existing[name].append((version_of(runtime), name, device["udid"]))
+
+          chosen = None
+          for name in wanted:
+              if existing[name]:
+                  existing[name].sort()
+                  _, name, udid = existing[name][-1]
+                  chosen = (name, udid)
+                  break
+
+          def supports(runtime, type_id):
+              supported = runtime.get("supportedDeviceTypes")
+              if not supported:
+                  return True
+              ids = []
+              for item in supported:
+                  if isinstance(item, str):
+                      ids.append(item)
+                  elif isinstance(item, dict):
+                      ids.append(item.get("identifier", ""))
+              return type_id in ids
+
+          if chosen is None:
+              type_by_name = {item.get("name"): item.get("identifier") for item in types}
+              for name in wanted:
+                  type_id = type_by_name.get(name)
+                  if not type_id:
+                      continue
+                  for runtime in reversed(runtimes):
+                      if not supports(runtime, type_id):
+                          continue
+                      try:
+                          udid = sh(
+                              "xcrun", "simctl", "create",
+                              name, type_id, runtime["identifier"],
+                          ).strip()
+                      except subprocess.CalledProcessError as error:
+                          print(f"create {name} failed: {error}")
+                          continue
+                      if udid:
+                          chosen = (name, udid)
+                          break
+                  if chosen:
+                      break
+
+          if chosen is None:
+              fallback = []
+              for runtime, group in devices.get("devices", {}).items():
+                  if "iOS" not in runtime:
+                      continue
+                  for device in group:
+                      if device.get("isAvailable", True) and device.get("name") == "iPhone 17 Pro Max":
+                          fallback.append((version_of(runtime), device["name"], device["udid"]))
+              if not fallback:
+                  raise SystemExit("no iPhone 15 Pro Max, 16 Pro Max, or 17 Pro Max")
+              fallback.sort()
+              _, name, udid = fallback[-1]
+              print("iPhone 15/16 Pro Max device types are not installed; using iPhone 17 Pro Max")
+              chosen = (name, udid)
+
+          name, udid = chosen
+          print(f"name={name}")
+          print(f"udid={udid}")
+          with open("/tmp/sim-choice.txt", "w") as path:
+              path.write(f"{name}\n{udid}\n")
+          PY
+          NAME=$(sed -n '1p' /tmp/sim-choice.txt)
+          UDID=$(sed -n '2p' /tmp/sim-choice.txt)
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "Using $NAME ($UDID)"
+
+      - name: Build for testing
+        working-directory: WaveCatchApp
+        run: |
+          xcodebuild build-for-testing \
+            -project WaveCatch.xcodeproj \
+            -scheme WaveCatch \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath /tmp/WaveCatchDD \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+
+      - name: Boot simulator, record, and play a full game
+        working-directory: WaveCatchApp
+        run: |
+          set +e
+          xcrun simctl boot "${{ steps.sim.outputs.udid }}" || true
+          xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}" -b
+          xcrun simctl status_bar "${{ steps.sim.outputs.udid }}" override --time "9:41" --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
+          BAR=$?
+          if [ "$BAR" -ne 0 ]; then
+            echo "status bar override failed"
+            exit "$BAR"
+          fi
+          mkdir -p /tmp/wavecatch-proof "$GITHUB_WORKSPACE/docs/proof"
+          rm -f /tmp/wavecatch-proof/record-start /tmp/wavecatch-proof/record-stop /tmp/wavecatch-proof/record-cancel /tmp/wavecatch-proof/record.pid /tmp/wavecatch-proof/raw.mp4
+          (
+            deadline=$((SECONDS + 180))
+            while [ ! -f /tmp/wavecatch-proof/record-start ] && [ ! -f /tmp/wavecatch-proof/record-cancel ]; do
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "recorder: timed out waiting for the menu"
+                exit 0
+              fi
+              sleep 0.2
+            done
+            if [ ! -f /tmp/wavecatch-proof/record-start ]; then
+              echo "recorder: cancelled before the menu"
+              exit 0
+            fi
+            echo "recorder: menu is up"
+            xcrun simctl io "${{ steps.sim.outputs.udid }}" recordVideo --codec h264 --force /tmp/wavecatch-proof/raw.mp4 &
+            echo $! > /tmp/wavecatch-proof/record.pid
+            while [ ! -f /tmp/wavecatch-proof/record-stop ] && [ ! -f /tmp/wavecatch-proof/record-cancel ]; do
+              sleep 0.2
+            done
+            sleep 0.4
+            if [ -f /tmp/wavecatch-proof/record.pid ]; then
+              kill -INT "$(cat /tmp/wavecatch-proof/record.pid)" || true
+              wait "$(cat /tmp/wavecatch-proof/record.pid)" || true
+            fi
+            echo "recorder: stopped"
+          ) &
+          WATCH_PID=$!
+          xcodebuild test-without-building \
+            -project WaveCatch.xcodeproj \
+            -scheme WaveCatch \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath /tmp/WaveCatchDD \
+            -only-testing:WaveCatchUITests/WaveCatchUITests/testFullGameProof \
+            -parallel-testing-enabled NO \
+            -resultBundlePath /tmp/wavecatch-proof/Test.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+          STATUS=$?
+          touch /tmp/wavecatch-proof/record-cancel
+          wait "$WATCH_PID" || true
+          sleep 1
+          swiftc "$GITHUB_WORKSPACE/Scripts/compress-proof.swift" -o /tmp/compress-proof
+          /tmp/compress-proof /tmp/wavecatch-proof/raw.mp4 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
+          COMPRESS=$?
+          cp -f /tmp/wavecatch-proof/*.png "$GITHUB_WORKSPACE/docs/proof/" || true
+          ls -lh "$GITHUB_WORKSPACE/docs/proof" || true
+          sips -g pixelWidth -g pixelHeight "$GITHUB_WORKSPACE"/docs/proof/*.png || true
+          if [ "$STATUS" -ne 0 ]; then
+            exit "$STATUS"
+          fi
+          exit "$COMPRESS"
+
+      - name: Upload proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof
+          path: docs/proof/
+          if-no-files-found: warn
