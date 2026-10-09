@@ -1,14 +1,18 @@
+import UIKit
 import XCTest
 
 final class WaveCatchUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
+        XCUIDevice.shared.orientation = .landscapeLeft
     }
 
     func testFullGameProof() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-uitest", "-seed", "7"]
+        XCUIDevice.shared.orientation = .landscapeLeft
         app.launch()
+        XCUIDevice.shared.orientation = .landscapeLeft
 
         let play = app.buttons["playButton"]
         XCTAssertTrue(play.waitForExistence(timeout: 8))
@@ -56,6 +60,12 @@ final class WaveCatchUITests: XCTestCase {
         XCTAssertTrue(sawMidgame, "score never left zero")
         XCTAssertTrue(sawCatch, "a second catch was not shown")
 
+        for lane in ["upperLeft", "upperRight", "lowerLeft", "lowerRight"] {
+            let other = app.otherElements["corner.\(lane)"]
+            let button = app.buttons["corner.\(lane)"]
+            XCTAssertTrue(other.waitForExistence(timeout: 4) || button.waitForExistence(timeout: 2), "missing corner.\(lane)")
+        }
+
         let elapsed = Date().timeIntervalSince(started)
         Thread.sleep(forTimeInterval: max(0, 32 - elapsed))
 
@@ -70,9 +80,7 @@ final class WaveCatchUITests: XCTestCase {
 
         let newBest = app.staticTexts["newBest"]
         XCTAssertTrue(newBest.waitForExistence(timeout: 4), "NEW BEST was not on the game over card")
-        Thread.sleep(forTimeInterval: 1.25)
-        _ = XCUIScreen.main.screenshot()
-        Thread.sleep(forTimeInterval: 0.4)
+        Thread.sleep(forTimeInterval: 1.5)
         save("05-gameover")
         XCTAssertTrue(newBest.exists)
         XCTAssertEqual(newBest.label, "NEW BEST")
@@ -86,6 +94,7 @@ final class WaveCatchUITests: XCTestCase {
         expectation(for: backToZero, evaluatedWith: app.staticTexts["score"])
         waitForExpectations(timeout: 6)
         XCTAssertFalse(app.buttons["playAgainButton"].exists)
+        Thread.sleep(forTimeInterval: 1.2)
         save("06-restart")
         Thread.sleep(forTimeInterval: 2.6)
         mark("record-stop")
@@ -105,12 +114,37 @@ final class WaveCatchUITests: XCTestCase {
 
     private func save(_ name: String) {
         let shot = XCUIScreen.main.screenshot()
-        let attachment = XCTAttachment(screenshot: shot)
+        let image = shot.image
+        let pixelsW = image.size.width * image.scale
+        let pixelsH = image.size.height * image.scale
+        let data = pixelsW >= pixelsH ? shot.pngRepresentation : landscapePNG(image)
+        let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.png")
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
         let directory = URL(fileURLWithPath: "/tmp/wavecatch-proof", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        try? shot.pngRepresentation.write(to: directory.appendingPathComponent("\(name).png"))
+        try? data.write(to: directory.appendingPathComponent("\(name).png"))
+    }
+
+    /// Native landscape pixels. A portrait framebuffer is rotated so the file is wider than it is tall.
+    private func landscapePNG(_ image: UIImage) -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let pixelSize = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+        let upright = pixelSize.width >= pixelSize.height
+        let target = upright ? pixelSize : CGSize(width: pixelSize.height, height: pixelSize.width)
+        let renderer = UIGraphicsImageRenderer(size: target, format: format)
+        let drawn = renderer.image { context in
+            if upright {
+                image.draw(in: CGRect(origin: .zero, size: target))
+            } else {
+                context.cgContext.translateBy(x: target.width, y: 0)
+                context.cgContext.rotate(by: .pi / 2)
+                image.draw(in: CGRect(x: 0, y: 0, width: target.height, height: target.width))
+            }
+        }
+        return drawn.pngData() ?? Data()
     }
 }

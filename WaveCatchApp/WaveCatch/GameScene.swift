@@ -25,7 +25,7 @@ final class GameScene: SKScene {
     private var shaking = false
 
     override init() {
-        super.init(size: CGSize(width: 390, height: 844))
+        super.init(size: CGSize(width: 932, height: 430))
         scaleMode = .resizeFill
         backgroundColor = Palette.uiIndigo
         addChild(world)
@@ -153,8 +153,8 @@ final class GameScene: SKScene {
     }
 
     private func addSun() {
-        let center = sk(LaneGeometry.Point(x: 0.72, y: 0.30))
-        let sun = SKShapeNode(circleOfRadius: 58)
+        let center = sk(LaneGeometry.Point(x: 0.70, y: 0.18))
+        let sun = SKShapeNode(circleOfRadius: 42)
         sun.fillColor = Palette.uiSun
         sun.strokeColor = Palette.uiInk
         sun.lineWidth = 4
@@ -162,7 +162,7 @@ final class GameScene: SKScene {
         sun.zPosition = 1
         world.addChild(sun)
         for index in 0..<3 {
-            let band = SKShapeNode(rectOf: CGSize(width: 120, height: 8), cornerRadius: 2)
+            let band = SKShapeNode(rectOf: CGSize(width: 88, height: 6), cornerRadius: 2)
             band.fillColor = Palette.uiTangerine.withAlphaComponent(0.85)
             band.strokeColor = .clear
             band.position = CGPoint(x: center.x, y: center.y + 24 - CGFloat(index) * 22)
@@ -172,43 +172,81 @@ final class GameScene: SKScene {
     }
 
     private func addWave() {
-        let path = CGMutablePath()
-        let left = sk(LaneGeometry.Point(x: 0, y: 0.20))
-        let lip = sk(LaneGeometry.Point(x: 0.55, y: 0.12))
-        let right = sk(LaneGeometry.Point(x: 1, y: 0.24))
-        let foot = sk(LaneGeometry.Point(x: 1, y: 0.40))
-        let footLeft = sk(LaneGeometry.Point(x: 0, y: 0.36))
-        path.move(to: left)
-        path.addQuadCurve(to: right, control: lip)
-        path.addLine(to: foot)
-        path.addLine(to: footLeft)
-        path.closeSubpath()
-        let wave = SKShapeNode(path: path)
+        let face = CGMutablePath()
+        face.move(to: sk(LaneGeometry.Point(x: -0.12, y: 0.50)))
+        face.addQuadCurve(to: sk(LaneGeometry.point(lane: .upperLeft, progress: 0)), control: sk(LaneGeometry.Point(x: 0.08, y: 0.44)))
+        face.addQuadCurve(to: sk(LaneGeometry.Point(x: 0.74, y: 0.16)), control: sk(LaneGeometry.Point(x: 0.56, y: 0.18)))
+        face.addQuadCurve(to: sk(LaneGeometry.Point(x: 1.14, y: 0.36)), control: sk(LaneGeometry.Point(x: 1.02, y: 0.06)))
+        face.addLine(to: sk(LaneGeometry.Point(x: 1.14, y: 0.78)))
+        face.addQuadCurve(to: sk(LaneGeometry.Point(x: -0.12, y: 0.74)), control: sk(LaneGeometry.Point(x: 0.50, y: 0.62)))
+        face.closeSubpath()
+        let wave = SKShapeNode(path: face)
         wave.fillColor = Palette.uiSea
-        wave.strokeColor = Palette.uiFoam
-        wave.lineWidth = 5
+        wave.strokeColor = .clear
+        wave.lineWidth = 0
         wave.zPosition = 2
         world.addChild(wave)
 
-        let curl = CGMutablePath()
-        let curlStart = sk(LaneGeometry.Point(x: 0.42, y: 0.16))
-        let curlEnd = sk(LaneGeometry.Point(x: 0.78, y: 0.18))
-        let curlControl = sk(LaneGeometry.Point(x: 0.62, y: 0.08))
-        curl.move(to: curlStart)
-        curl.addQuadCurve(to: curlEnd, control: curlControl)
-        let lipNode = SKShapeNode(path: curl)
-        lipNode.strokeColor = Palette.uiFoam
-        lipNode.lineWidth = 8
+        let lip = CGMutablePath()
+        lip.move(to: sk(LaneGeometry.Point(x: -0.12, y: 0.50)))
+        lip.addQuadCurve(to: sk(LaneGeometry.point(lane: .upperLeft, progress: 0)), control: sk(LaneGeometry.Point(x: 0.08, y: 0.44)))
+        lip.addQuadCurve(to: sk(LaneGeometry.Point(x: 0.74, y: 0.16)), control: sk(LaneGeometry.Point(x: 0.56, y: 0.18)))
+        lip.addQuadCurve(to: sk(LaneGeometry.Point(x: 1.08, y: 0.32)), control: sk(LaneGeometry.Point(x: 0.98, y: 0.05)))
+        let lipNode = SKShapeNode(path: lip)
+        lipNode.strokeColor = Palette.uiFoamLip
+        lipNode.fillColor = .clear
+        lipNode.lineWidth = 11
         lipNode.lineCap = .round
-        lipNode.zPosition = 2.2
+        lipNode.zPosition = 2.3
         world.addChild(lipNode)
+
+        let curl = CGMutablePath()
+        curl.move(to: sk(LaneGeometry.Point(x: 0.70, y: 0.17)))
+        curl.addQuadCurve(to: sk(LaneGeometry.Point(x: 1.10, y: 0.30)), control: sk(LaneGeometry.Point(x: 0.96, y: 0.02)))
+        let curlNode = SKShapeNode(path: curl)
+        curlNode.strokeColor = Palette.uiFoamLip
+        curlNode.lineWidth = 18
+        curlNode.lineCap = .round
+        curlNode.zPosition = 2.35
+        world.addChild(curlNode)
+
+        let foam = [
+            LaneGeometry.Point(x: 0.08, y: 0.45),
+            LaneGeometry.Point(x: 0.24, y: 0.34),
+            LaneGeometry.Point(x: 0.40, y: 0.24),
+            LaneGeometry.Point(x: 0.56, y: 0.19),
+            LaneGeometry.Point(x: 0.70, y: 0.15),
+            LaneGeometry.Point(x: 0.82, y: 0.13),
+            LaneGeometry.Point(x: 0.92, y: 0.16),
+            LaneGeometry.Point(x: 1.00, y: 0.24),
+        ]
+        for (index, spot) in foam.enumerated() {
+            let radius: CGFloat = index >= 5 ? 8 : 5
+            let dot = SKShapeNode(circleOfRadius: radius)
+            dot.fillColor = Palette.uiFoamLip
+            dot.strokeColor = .clear
+            dot.position = sk(spot)
+            dot.zPosition = 2.4
+            world.addChild(dot)
+            if index >= 4 {
+                let scallop = SKShapeNode(circleOfRadius: radius + 3)
+                scallop.fillColor = Palette.uiFoamLip.withAlphaComponent(0.85)
+                scallop.strokeColor = .clear
+                let dropped = LaneGeometry.Point(x: spot.x - 0.015, y: spot.y + 0.035)
+                scallop.position = sk(dropped)
+                scallop.zPosition = 2.25
+                world.addChild(scallop)
+            }
+        }
     }
 
     private func addShore() {
-        let shore = SKShapeNode(rectOf: CGSize(width: size.width + 4, height: size.height * 0.5))
+        let shoreHeight = size.height * 0.62
+        let shore = SKShapeNode(rectOf: CGSize(width: size.width + 80, height: shoreHeight))
         shore.fillColor = Palette.uiDeepSea
         shore.strokeColor = .clear
-        shore.position = CGPoint(x: size.width / 2, y: size.height * 0.22)
+        shore.lineWidth = 0
+        shore.position = CGPoint(x: size.width / 2, y: shoreHeight / 2 - size.height * 0.08)
         shore.zPosition = 1.5
         world.addChild(shore)
     }

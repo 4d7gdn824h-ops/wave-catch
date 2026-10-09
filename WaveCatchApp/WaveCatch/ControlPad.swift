@@ -2,70 +2,91 @@ import SwiftUI
 import UIKit
 import WaveCatchCore
 
-struct ControlPad: View {
-    var enabled: Bool
-    var showTiles: Bool
-    var swipeEnabled: Bool
-    var pressed: Lane?
-    var verticalSplit: CGFloat = 0.5
-    var onLane: (Lane) -> Void
+enum CornerMetrics {
+    static let side: CGFloat = 104
+    static let margin: CGFloat = 8
 
-    var body: some View {
-        ZStack {
-            if showTiles {
-                tileGrid
-            }
-            TouchCatcher(
-                enabled: enabled,
-                swipeEnabled: swipeEnabled,
-                verticalSplit: verticalSplit,
-                onLane: onLane
+    static func frame(for lane: Lane, size: CGSize, insets: UIEdgeInsets, side: CGFloat = CornerMetrics.side) -> CGRect {
+        let length = max(88, side)
+        switch lane {
+        case .upperLeft:
+            return CGRect(x: insets.left + margin, y: insets.top + margin, width: length, height: length)
+        case .upperRight:
+            return CGRect(
+                x: size.width - insets.right - margin - length,
+                y: insets.top + margin,
+                width: length,
+                height: length
+            )
+        case .lowerLeft:
+            return CGRect(
+                x: insets.left + margin,
+                y: size.height - insets.bottom - margin - length,
+                width: length,
+                height: length
+            )
+        case .lowerRight:
+            return CGRect(
+                x: size.width - insets.right - margin - length,
+                y: size.height - insets.bottom - margin - length,
+                width: length,
+                height: length
             )
         }
     }
-
-    private var tileGrid: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                tile(.upperLeft)
-                tile(.upperRight)
-            }
-            HStack(spacing: 0) {
-                tile(.lowerLeft)
-                tile(.lowerRight)
-            }
-        }
-    }
-
-    private func tile(_ lane: Lane) -> some View {
-        ZStack {
-            Palette.sand.opacity(0.5)
-            StripeFill()
-                .opacity(0.18)
-            if pressed == lane {
-                Palette.foam.opacity(0.55)
-            }
-            ArrowMark(lane: lane)
-                .stroke(Palette.ink, lineWidth: 3)
-                .frame(width: 28, height: 28)
-        }
-        .overlay(Rectangle().stroke(Palette.ink.opacity(0.28), lineWidth: 1))
-    }
 }
 
-private struct StripeFill: View {
+struct CornerControls: View {
+    var enabled: Bool
+    var swipeEnabled: Bool
+    var pressed: Lane?
+    var large: Bool
+    var insets: UIEdgeInsets
+    var onLane: (Lane) -> Void
+
+    private var side: CGFloat { large ? 128 : CornerMetrics.side }
+
     var body: some View {
         GeometryReader { geo in
-            Path { path in
-                var x: CGFloat = -geo.size.height
-                while x < geo.size.width {
-                    path.move(to: CGPoint(x: x, y: geo.size.height))
-                    path.addLine(to: CGPoint(x: x + geo.size.height, y: 0))
-                    x += 18
+            let size = geo.size
+            ZStack {
+                TouchCatcher(
+                    enabled: enabled,
+                    swipeEnabled: swipeEnabled,
+                    insets: insets,
+                    side: side,
+                    onLane: onLane
+                )
+                ForEach(Lane.allCases, id: \.self) { lane in
+                    let frame = CornerMetrics.frame(for: lane, size: size, insets: insets, side: side)
+                    cornerFace(lane)
+                        .frame(width: frame.width, height: frame.height)
+                        .position(x: frame.midX, y: frame.midY)
+                        .allowsHitTesting(false)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityIdentifier("corner.\(lane.rawValue)")
+                        .accessibilityLabel(lane.rawValue)
                 }
             }
-            .stroke(Palette.hotPink.opacity(0.45), lineWidth: 4)
         }
+    }
+
+    private func cornerFace(_ lane: Lane) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(Palette.buttonSand.opacity(0.35))
+            if pressed == lane {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Palette.buttonSand.opacity(0.92))
+            }
+            ArrowMark(lane: lane)
+                .stroke(Palette.buttonPlum, lineWidth: 3)
+                .frame(width: 28, height: 28)
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(Palette.buttonPlum, lineWidth: 2)
+        )
     }
 }
 
@@ -90,7 +111,8 @@ private struct ArrowMark: Shape {
 struct TouchCatcher: UIViewRepresentable {
     var enabled: Bool
     var swipeEnabled: Bool
-    var verticalSplit: CGFloat
+    var insets: UIEdgeInsets
+    var side: CGFloat
     var onLane: (Lane) -> Void
 
     func makeUIView(context: Context) -> PadView {
@@ -103,7 +125,8 @@ struct TouchCatcher: UIViewRepresentable {
         uiView.onLane = onLane
         uiView.isUserInteractionEnabled = enabled
         uiView.swipeEnabled = swipeEnabled
-        uiView.verticalSplit = verticalSplit
+        uiView.cornerInsets = insets
+        uiView.buttonSide = side
         uiView.setNeedsLayout()
     }
 }
@@ -111,7 +134,8 @@ struct TouchCatcher: UIViewRepresentable {
 final class PadView: UIView {
     var onLane: ((Lane) -> Void)?
     var swipeEnabled = false
-    var verticalSplit: CGFloat = 0.5
+    var cornerInsets = UIEdgeInsets.zero
+    var buttonSide = CornerMetrics.side
     private var lastStamp = -1.0
     private var touchStart: [ObjectIdentifier: CGPoint] = [:]
     private let zones: [Lane: ZoneView]
@@ -120,7 +144,7 @@ final class PadView: UIView {
         var built: [Lane: ZoneView] = [:]
         for lane in Lane.allCases {
             let zone = ZoneView(lane: lane)
-            zone.accessibilityIdentifier = "zone.\(lane.rawValue)"
+            zone.accessibilityIdentifier = "corner.\(lane.rawValue)"
             zone.accessibilityLabel = lane.rawValue
             zone.isAccessibilityElement = true
             built[lane] = zone
@@ -155,12 +179,15 @@ final class PadView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let midX = bounds.midX
-        let midY = bounds.height * min(0.9, max(0.1, verticalSplit))
-        zones[.upperLeft]?.frame = CGRect(x: 0, y: 0, width: midX, height: midY)
-        zones[.upperRight]?.frame = CGRect(x: midX, y: 0, width: bounds.width - midX, height: midY)
-        zones[.lowerLeft]?.frame = CGRect(x: 0, y: midY, width: midX, height: bounds.height - midY)
-        zones[.lowerRight]?.frame = CGRect(x: midX, y: midY, width: bounds.width - midX, height: bounds.height - midY)
+        let insets = UIEdgeInsets(
+            top: max(cornerInsets.top, safeAreaInsets.top),
+            left: max(cornerInsets.left, safeAreaInsets.left),
+            bottom: max(cornerInsets.bottom, safeAreaInsets.bottom),
+            right: max(cornerInsets.right, safeAreaInsets.right)
+        )
+        for lane in Lane.allCases {
+            zones[lane]?.frame = CornerMetrics.frame(for: lane, size: bounds.size, insets: insets, side: buttonSide)
+        }
     }
 
     private func accept(_ lane: Lane, stamp: TimeInterval) {

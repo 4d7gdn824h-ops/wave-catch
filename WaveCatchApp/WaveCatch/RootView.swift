@@ -7,22 +7,27 @@ struct RootView: View {
     @StateObject private var model = GameModel()
     @State private var safeTop: CGFloat = 0
     @State private var safeBottom: CGFloat = 0
+    @State private var safeLeft: CGFloat = 0
+    @State private var safeRight: CGFloat = 0
 
     var body: some View {
         GeometryReader { geo in
             let top = max(safeTop, geo.safeAreaInsets.top)
             let bottom = max(safeBottom, geo.safeAreaInsets.bottom)
-            let safeHeight = max(1, geo.size.height - top - bottom)
-            let fraction = model.largePad ? 0.55 : 0.45
-            let padHeight = safeHeight * fraction
-            let padCenterY = geo.size.height - bottom - padHeight / 2
+            let left = max(safeLeft, geo.safeAreaInsets.leading)
+            let right = max(safeRight, geo.safeAreaInsets.trailing)
             ZStack(alignment: .topLeading) {
                 SafeAreaProbe { insets in
                     let nextTop = insets.top
                     let nextBottom = insets.bottom
-                    if abs(nextTop - safeTop) > 0.5 || abs(nextBottom - safeBottom) > 0.5 {
+                    let nextLeft = insets.left
+                    let nextRight = insets.right
+                    if abs(nextTop - safeTop) > 0.5 || abs(nextBottom - safeBottom) > 0.5
+                        || abs(nextLeft - safeLeft) > 0.5 || abs(nextRight - safeRight) > 0.5 {
                         safeTop = nextTop
                         safeBottom = nextBottom
+                        safeLeft = nextLeft
+                        safeRight = nextRight
                     }
                 }
                 .frame(width: geo.size.width, height: geo.size.height)
@@ -31,20 +36,16 @@ struct RootView: View {
                     .frame(width: geo.size.width, height: geo.size.height)
 
                 if model.mode != .menu {
-                    hud(top: top, width: geo.size.width)
-                    ControlPad(
+                    hud(top: top, left: left, right: right, width: geo.size.width)
+                    CornerControls(
                         enabled: model.mode == .playing && !model.paused,
-                        showTiles: !model.wholeScreenPad,
                         swipeEnabled: model.swipeEnabled,
                         pressed: model.pressedLane,
-                        verticalSplit: model.wholeScreenPad ? CGFloat(LaneGeometry.surferAnchor.y) : CGFloat(0.5),
+                        large: model.largePad,
+                        insets: UIEdgeInsets(top: top, left: left, bottom: bottom, right: right),
                         onLane: { model.setLane($0) }
                     )
-                    .frame(width: geo.size.width, height: model.wholeScreenPad ? geo.size.height : padHeight)
-                    .position(
-                        x: geo.size.width / 2,
-                        y: model.wholeScreenPad ? geo.size.height / 2 : padCenterY
-                    )
+                    .frame(width: geo.size.width, height: geo.size.height)
                 }
 
                 if model.mode == .menu {
@@ -67,7 +68,7 @@ struct RootView: View {
         }
     }
 
-    private func hud(top: CGFloat, width: CGFloat) -> some View {
+    private func hud(top: CGFloat, left: CGFloat, right: CGFloat, width: CGFloat) -> some View {
         VStack(spacing: 4) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -80,7 +81,7 @@ struct RootView: View {
                         .accessibilityLabel("\(model.lives)")
                 }
                 Spacer()
-                VStack(spacing: 0) {
+                VStack(spacing: 2) {
                     Text("\(model.score)")
                         .font(.system(size: 40, weight: .black, design: .rounded))
                         .foregroundColor(Palette.foam)
@@ -88,19 +89,25 @@ struct RootView: View {
                     Text(multiplierText)
                         .font(.system(size: 16, weight: .heavy, design: .rounded))
                         .foregroundColor(Palette.sun)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 2)
+                        .background(Palette.indigo.opacity(0.88))
+                        .clipShape(Capsule())
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 8) {
-                    Button(action: { model.togglePause() }) {
-                        Image(systemName: model.paused ? "play.fill" : "pause.fill")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(Palette.ink)
-                            .frame(width: 44, height: 44)
-                            .background(Palette.foam)
-                            .clipShape(Circle())
+                    if model.mode == .playing {
+                        Button(action: { model.togglePause() }) {
+                            Image(systemName: model.paused ? "play.fill" : "pause.fill")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(Palette.ink)
+                                .frame(width: 44, height: 44)
+                                .background(Palette.foam)
+                                .clipShape(Circle())
+                        }
+                        .accessibilityIdentifier("pauseButton")
                     }
-                    .accessibilityIdentifier("pauseButton")
-                    if model.showTuning {
+                    if model.showTuning && model.mode == .playing {
                         Button(action: { model.showDebug = true }) {
                             Image(systemName: "gearshape.fill")
                                 .font(.system(size: 16, weight: .bold))
@@ -135,8 +142,9 @@ struct RootView: View {
                 Spacer()
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, top + 6)
+        .padding(.leading, left + CornerMetrics.side + CornerMetrics.margin + 8)
+        .padding(.trailing, right + CornerMetrics.side + CornerMetrics.margin + 8)
+        .padding(.top, top + 8)
         .frame(width: width, alignment: .top)
     }
 
@@ -201,7 +209,9 @@ struct RootView: View {
     }
 
     private func gameOver(size: CGSize) -> some View {
-        VStack(spacing: 14) {
+        let cardWidth = size.width * 0.55
+        let cardHeight = size.height * 0.80
+        return VStack(spacing: 12) {
             Text("Game over")
                 .font(.system(size: 34, weight: .black, design: .rounded))
                 .foregroundColor(Palette.foam)
@@ -227,18 +237,20 @@ struct RootView: View {
                 Text("Play again")
                     .font(.system(size: 26, weight: .heavy, design: .rounded))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
+                    .padding(.vertical, 14)
             }
             .buttonStyle(.borderedProminent)
             .tint(model.againReady ? Palette.hotPink : Palette.ink)
             .disabled(!model.againReady)
+            .frame(width: cardWidth * 0.60)
             .accessibilityIdentifier("playAgainButton")
         }
-        .padding(24)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 18)
+        .frame(width: cardWidth, height: cardHeight)
         .background(Palette.indigo.opacity(0.92))
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 28).stroke(Palette.foam, lineWidth: 3))
-        .padding(.horizontal, 24)
         .frame(width: size.width, height: size.height)
     }
 
@@ -299,6 +311,11 @@ struct SceneHost: UIViewRepresentable {
     func updateUIView(_ uiView: SKView, context: Context) {
         if uiView.scene !== scene {
             uiView.presentScene(scene)
+        }
+        let bounds = uiView.bounds.size
+        guard bounds.width > 10, bounds.height > 10 else { return }
+        if abs(scene.size.width - bounds.width) > 1 || abs(scene.size.height - bounds.height) > 1 {
+            scene.size = bounds
         }
     }
 }

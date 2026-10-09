@@ -17,6 +17,9 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Install ffmpeg
+        run: brew install ffmpeg
+
       - name: Generate the Xcode project
         working-directory: WaveCatchApp
         run: xcodegen generate
@@ -197,12 +200,26 @@ jobs:
           touch /tmp/wavecatch-proof/record-cancel
           wait "$WATCH_PID" || true
           sleep 1
-          swiftc "$GITHUB_WORKSPACE/Scripts/compress-proof.swift" -o /tmp/compress-proof
-          /tmp/compress-proof /tmp/wavecatch-proof/raw.mp4 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
+          bash "$GITHUB_WORKSPACE/Scripts/compress-proof.sh" /tmp/wavecatch-proof/raw.mp4 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
           COMPRESS=$?
           cp -f /tmp/wavecatch-proof/*.png "$GITHUB_WORKSPACE/docs/proof/" || true
+          for shot in "$GITHUB_WORKSPACE"/docs/proof/*.png; do
+            W=$(sips -g pixelWidth "$shot" | awk '/pixelWidth/{print $2}')
+            H=$(sips -g pixelHeight "$shot" | awk '/pixelHeight/{print $2}')
+            if [ -n "$W" ] && [ -n "$H" ] && [ "$H" -gt "$W" ]; then
+              sips -r 90 "$shot" >/dev/null
+            fi
+          done
           ls -lh "$GITHUB_WORKSPACE/docs/proof" || true
           sips -g pixelWidth -g pixelHeight "$GITHUB_WORKSPACE"/docs/proof/*.png || true
+          GAME_W=$(sips -g pixelWidth "$GITHUB_WORKSPACE/docs/proof/05-gameover.png" | awk '/pixelWidth/{print $2}')
+          GAME_H=$(sips -g pixelHeight "$GITHUB_WORKSPACE/docs/proof/05-gameover.png" | awk '/pixelHeight/{print $2}')
+          if [ "$GAME_W" != "2796" ] || [ "$GAME_H" != "1290" ]; then
+            echo "05-gameover.png is ${GAME_W}x${GAME_H}, expected 2796x1290"
+            if [ "$STATUS" -eq 0 ]; then
+              STATUS=1
+            fi
+          fi
           if [ "$STATUS" -ne 0 ]; then
             exit "$STATUS"
           fi
@@ -215,3 +232,81 @@ jobs:
           name: proof
           path: docs/proof/
           if-no-files-found: warn
+
+      - name: Upload raw recording
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-recording
+          path: /tmp/wavecatch-proof/raw.mp4
+          if-no-files-found: warn
+
+  appetize:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        working-directory: WaveCatchApp
+        run: xcodegen generate
+
+      - name: Build an unsigned simulator app
+        working-directory: WaveCatchApp
+        run: |
+          set -euo pipefail
+          build_sim() {
+            local archs="$1"
+            rm -rf /tmp/WaveCatchSimDD
+            xcodebuild build \
+              -project WaveCatch.xcodeproj \
+              -scheme WaveCatch \
+              -configuration Release \
+              -sdk iphonesimulator \
+              -destination "generic/platform=iOS Simulator" \
+              -derivedDataPath /tmp/WaveCatchSimDD \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              DEVELOPMENT_TEAM="" \
+              ONLY_ACTIVE_ARCH=NO \
+              EXCLUDED_ARCHS="" \
+              ARCHS="$archs"
+          }
+          set +e
+          build_sim "x86_64 arm64"
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 0 ]; then
+            echo "simulator archs: x86_64 arm64" | tee /tmp/appetize-archs.txt
+          else
+            echo "x86_64 slice did not build; shipping arm64 only"
+            build_sim "arm64"
+            echo "simulator archs: arm64" | tee /tmp/appetize-archs.txt
+          fi
+
+      - name: Zip WaveCatch.app for Appetize
+        run: |
+          set -euo pipefail
+          APP=$(find /tmp/WaveCatchSimDD/Build/Products -type d -name 'WaveCatch.app' -path '*iphonesimulator*' | head -1)
+          test -n "$APP"
+          test -d "$APP"
+          echo "app: $APP"
+          lipo -info "$APP/WaveCatch"
+          rm -f /tmp/WaveCatch-sim.zip
+          ditto -c -k --sequesterRsrc --keepParent "$APP" /tmp/WaveCatch-sim.zip
+          unzip -l /tmp/WaveCatch-sim.zip
+          # The archive root is the bundle, not a parent folder.
+          unzip -Z1 /tmp/WaveCatch-sim.zip | awk 'NR==1 { if ($0 !~ /^WaveCatch\.app\//) exit 1 }'
+          ls -lh /tmp/WaveCatch-sim.zip
+          cat /tmp/appetize-archs.txt
+
+      - name: Upload appetize simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: appetize-sim-app
+          path: /tmp/WaveCatch-sim.zip
+          if-no-files-found: error

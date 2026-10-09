@@ -1,6 +1,6 @@
 # Wave Catch
 
-Original portrait arcade game for iPhone. You ride one board and catch what the wave throws, across four spots: upper-left, upper-right, lower-left, and lower-right.
+Original landscape arcade game for iPhone. You ride one board and catch what the wave throws, across four spots: upper-left, upper-right, lower-left, and lower-right.
 
 The design lives in [docs/Wave_Catch_GDD.md](docs/Wave_Catch_GDD.md). Numbers in the prototype follow [docs/DESIGN-TUNING.md](docs/DESIGN-TUNING.md). Lane paths are isolated in `WaveCatchCore/Sources/WaveCatchCore/LaneGeometry.swift` so they can change in one place. That layout (arcs off the wave lip, side skims along the waterline) is open question 1 in the tuning doc and still needs Marcin's approval.
 
@@ -35,11 +35,11 @@ swift test --package-path WaveCatchCore
 5. Under Signing & Capabilities, set your Team.
 6. Build and run.
 
-The phone must be in portrait. The bundle id in the project is the placeholder `com.example.wavecatch` (TBD).
+The phone locks to landscape left and landscape right. The bundle id in the project is the placeholder `com.example.wavecatch` (TBD).
 
 ## Controls
 
-The touch pad is the bottom 45% of the safe area, split into four quarters with no dead gaps. A touch down moves the surfer immediately. The pose eases over 60 ms and never blocks the next touch. The newest touch wins.
+Four corner buttons replace the old bottom pad. Top-left is the upper-left lane, top-right is upper-right, bottom-left is lower-left, and bottom-right is lower-right. Each hit area is at least 88 points, tinted sand, and inset for the notch, Dynamic Island, and home indicator. Those insets swap sides between landscape left and landscape right. A touch down moves the surfer immediately. The pose eases over 60 ms and never blocks the next touch. The newest touch wins. The pressed corner flashes for 80 ms.
 
 A catchable that arrives while you are elsewhere still counts if you reach its spot within 80 ms, and the game shows CLOSE!. A jellyfish stings only if you are still on its spot 40 ms after it lands. Standing somewhere else lets it pass and keeps the combo.
 
@@ -69,9 +69,9 @@ The best score is stored in UserDefaults on the device.
 
 ## Proof run
 
-The UI test launches with `-uitest` and seed 7. That launch clears the saved best and steers the surfer inside the app: it catches until the combo reaches 10, lets one jellyfish pass, then misses until the Game over card. The test taps Play, waits for that card (including NEW BEST), taps Play again, and leaves a couple of seconds of the next run on screen. Recording starts when the menu is up and stops before the app quits. Accessibility identifiers: `score`, `lives`, `newBest`, `longestCombo`, `zone.upperLeft`, `zone.upperRight`, `zone.lowerLeft`, `zone.lowerRight`, `playAgainButton`.
+The UI test launches with `-uitest` and seed 7 on an iPhone 15 Pro Max held landscape-left. That launch clears the saved best and steers the surfer inside the app: it catches until the combo reaches 10, lets one jellyfish pass, then misses until the Game over card. The test taps Play, waits for that card (including NEW BEST), taps Play again, and leaves a couple of seconds of the next run on screen. Recording starts when the menu is up and stops before the app quits. Accessibility identifiers: `score`, `lives`, `newBest`, `longestCombo`, `corner.upperLeft`, `corner.upperRight`, `corner.lowerLeft`, `corner.lowerRight`, `playAgainButton`.
 
-GitHub Actions on `macos-latest` runs `swift test`, `xcodegen`, an iOS Simulator build with signing off, and that UI test. The clip is the gameplay window, scaled to about 590×1280 and kept under 15 MB. Screenshots and the video are uploaded as the `proof` artifact.
+GitHub Actions on `macos-latest` runs `swift test`, `xcodegen`, an iOS Simulator build with signing off, and that UI test. The clip is the gameplay window, scaled to about 1280×590 and kept under 15 MB. Screenshots are native 2796×1290 and are uploaded with the video as the `proof` artifact.
 
 ## Still needed for TestFlight
 

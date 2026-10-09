@@ -2,14 +2,17 @@ import Foundation
 
 /// Screen-normalised paths for the four lanes.
 ///
-/// This is the only place that decides where objects travel. Change it here if the
-/// layout is revised. Coordinates use a full portrait screen: x grows right, y grows
-/// down. The touch pad occupies the bottom 45 percent, so every sample stays above y = 0.55.
+/// This is the only place that decides where objects travel. Coordinates use the
+/// full landscape screen: x grows right, y grows down. Corner buttons own the
+/// corners, so every sample stays in the middle band and on screen.
 ///
-/// Upper lanes leave the lip of the curling wave and arc down to the surfer's hands.
-/// Lower lanes skim in from the left and right along the waterline, with a small bob.
-/// Paths stay inset from the screen edges so a sprite drawn at 1.3× around each
-/// sample is fully on screen. Nothing is aimed out of a screen corner.
+/// Upper lanes leave the lip of the curling wave and arc down toward the upper
+/// corner buttons. Lower lanes skim in from the left and right along the
+/// waterline, with a small bob, and finish above the lower corner buttons.
+/// A 1.3× sprite on a lower sample stays at least 12 points clear of those
+/// buttons on a landscape Pro Max, in both orientations. The surfer stays in
+/// the center. Paths stay inset so a sprite drawn at 1.3× around each sample
+/// remains on screen.
 public enum LaneGeometry {
     public struct Point: Equatable {
         public var x: Double
@@ -26,24 +29,24 @@ public enum LaneGeometry {
         switch lane {
         case .upperLeft:
             return quadratic(
-                Point(x: 0.30, y: 0.17),
-                Point(x: 0.05, y: 0.22),
-                Point(x: 0.36, y: 0.37),
+                Point(x: 0.40, y: 0.26),
+                Point(x: 0.16, y: 0.30),
+                Point(x: 0.24, y: 0.38),
                 u
             )
         case .upperRight:
             return quadratic(
-                Point(x: 0.70, y: 0.17),
-                Point(x: 0.95, y: 0.22),
-                Point(x: 0.64, y: 0.37),
+                Point(x: 0.60, y: 0.26),
+                Point(x: 0.84, y: 0.30),
+                Point(x: 0.76, y: 0.38),
                 u
             )
         case .lowerLeft:
-            let y = 0.46 + 0.012 * sin(u * Double.pi * 3)
-            return Point(x: 0.14 + 0.26 * u, y: y)
+            let y = 0.496 + 0.008 * sin(u * Double.pi * 3)
+            return Point(x: 0.22 + 0.10 * u, y: y)
         case .lowerRight:
-            let y = 0.46 + 0.012 * sin(u * Double.pi * 3 + 0.6)
-            return Point(x: 0.86 - 0.26 * u, y: y)
+            let y = 0.496 + 0.008 * sin(u * Double.pi * 3 + 0.6)
+            return Point(x: 0.78 - 0.10 * u, y: y)
         }
     }
 
@@ -52,7 +55,7 @@ public enum LaneGeometry {
     }
 
     /// Where the surfer's body sits, as a fraction of the screen. Poses offset from here.
-    public static let surferAnchor = Point(x: 0.50, y: 0.43)
+    public static let surferAnchor = Point(x: 0.50, y: 0.50)
 
     private static func quadratic(_ a: Point, _ control: Point, _ b: Point, _ u: Double) -> Point {
         let inverse = 1 - u
