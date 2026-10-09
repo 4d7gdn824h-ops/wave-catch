@@ -240,3 +240,73 @@ jobs:
           name: raw-recording
           path: /tmp/wavecatch-proof/raw.mp4
           if-no-files-found: warn
+
+  appetize:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        working-directory: WaveCatchApp
+        run: xcodegen generate
+
+      - name: Build an unsigned simulator app
+        working-directory: WaveCatchApp
+        run: |
+          set -euo pipefail
+          build_sim() {
+            local archs="$1"
+            rm -rf /tmp/WaveCatchSimDD
+            xcodebuild build \
+              -project WaveCatch.xcodeproj \
+              -scheme WaveCatch \
+              -configuration Release \
+              -sdk iphonesimulator \
+              -destination "generic/platform=iOS Simulator" \
+              -derivedDataPath /tmp/WaveCatchSimDD \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              DEVELOPMENT_TEAM="" \
+              ONLY_ACTIVE_ARCH=NO \
+              EXCLUDED_ARCHS="" \
+              ARCHS="$archs"
+          }
+          set +e
+          build_sim "x86_64 arm64"
+          STATUS=$?
+          set -e
+          if [ "$STATUS" -eq 0 ]; then
+            echo "simulator archs: x86_64 arm64" | tee /tmp/appetize-archs.txt
+          else
+            echo "x86_64 slice did not build; shipping arm64 only"
+            build_sim "arm64"
+            echo "simulator archs: arm64" | tee /tmp/appetize-archs.txt
+          fi
+
+      - name: Zip WaveCatch.app for Appetize
+        run: |
+          set -euo pipefail
+          APP=$(find /tmp/WaveCatchSimDD/Build/Products -type d -name 'WaveCatch.app' -path '*iphonesimulator*' | head -1)
+          test -n "$APP"
+          test -d "$APP"
+          echo "app: $APP"
+          lipo -info "$APP/WaveCatch"
+          rm -f /tmp/WaveCatch-sim.zip
+          ditto -c -k --sequesterRsrc --keepParent "$APP" /tmp/WaveCatch-sim.zip
+          unzip -l /tmp/WaveCatch-sim.zip
+          # The archive root is the bundle, not a parent folder.
+          unzip -Z1 /tmp/WaveCatch-sim.zip | awk 'NR==1 { if ($0 !~ /^WaveCatch\.app\//) exit 1 }'
+          ls -lh /tmp/WaveCatch-sim.zip
+          cat /tmp/appetize-archs.txt
+
+      - name: Upload appetize simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: appetize-sim-app
+          path: /tmp/WaveCatch-sim.zip
+          if-no-files-found: error
