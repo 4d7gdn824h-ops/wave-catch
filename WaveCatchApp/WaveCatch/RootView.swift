@@ -211,7 +211,7 @@ struct RootView: View {
     private func gameOver(size: CGSize) -> some View {
         let cardWidth = size.width * 0.55
         let cardHeight = size.height * 0.80
-        VStack(spacing: 12) {
+        return VStack(spacing: 12) {
             Text("Game over")
                 .font(.system(size: 34, weight: .black, design: .rounded))
                 .foregroundColor(Palette.foam)
