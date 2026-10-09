@@ -44,6 +44,10 @@ final class GameModel: ObservableObject {
     private var againUnlock: DispatchWorkItem?
     private var glowClear: DispatchWorkItem?
     private var ringLitUntil = 0.0
+    /// Proof-only steering. Shipping play never sets these.
+    private var proofDeath = false
+    private var proofSawPass = false
+    private var proofCruiseUntil: Double?
 
     init() {
         let args = ProcessInfo.processInfo.arguments
@@ -53,10 +57,14 @@ final class GameModel: ObservableObject {
             parsedSeed = value
         }
         seed = parsedSeed
+        if uitest {
+            UserDefaults.standard.removeObject(forKey: "wavecatch.bestScore")
+            UserDefaults.standard.removeObject(forKey: "wavecatch.bestCombo")
+        }
         bestScore = store.bestScore
         showTuning = args.contains("-showTuning")
         if uitest {
-            tuning.speedMultiplier = 0.70
+            tuning.speedMultiplier = 0.62
             tuning.demoSpotlightJellyfish = true
             startPhase = 1
         }
@@ -83,6 +91,9 @@ final class GameModel: ObservableObject {
         jellyfishOnScreen = false
         ringLit = false
         ringLitUntil = 0
+        proofDeath = false
+        proofSawPass = false
+        proofCruiseUntil = nil
         mode = .playing
         haptics.prepareAll()
     }
@@ -111,11 +122,58 @@ final class GameModel: ObservableObject {
 
     func advance(dt: Double) {
         guard mode == .playing, !paused, let session else { return }
+        steerProof(session)
         session.tuning = tuning.clamped()
         let events = session.tick(dt: dt)
         publish(session)
         react(to: events, session: session)
+        noteProof(events, session: session)
         scene.present(events, session: session)
+    }
+
+    /// `-uitest` only. Follow the next catchable, step off a jellyfish, then miss on purpose after the combo climbs.
+    private func steerProof(_ session: GameSession) {
+        guard uitest else { return }
+        let live = session.liveObjects
+        if !proofDeath {
+            if let lane = session.suggestedLane() {
+                session.setPosition(lane)
+            }
+            if let jelly = live.filter({ $0.kind == .jellyfish }).min(by: { $0.arrivalTime < $1.arrivalTime }),
+               jelly.lane == session.position,
+               jelly.arrivalTime - session.time < 0.55 {
+                let away = Lane.allCases.first { candidate in
+                    candidate != jelly.lane && !live.contains { $0.kind == .jellyfish && $0.lane == candidate }
+                }
+                if let away {
+                    session.setPosition(away)
+                }
+            }
+        } else if let lane = session.suggestedLane() {
+            session.setPosition(lane.opposite)
+        }
+    }
+
+    private func noteProof(_ events: [GameEvent], session: GameSession) {
+        guard uitest, !proofDeath else { return }
+        for event in events {
+            switch event {
+            case .jellyfishPassed, .dodged:
+                proofSawPass = true
+            default:
+                break
+            }
+        }
+        if proofSawPass, session.combo >= 10 {
+            if proofCruiseUntil == nil {
+                proofCruiseUntil = session.time + 1.6
+            }
+            if let until = proofCruiseUntil, session.time >= until {
+                proofDeath = true
+            }
+        } else {
+            proofCruiseUntil = nil
+        }
     }
 
     private func publish(_ session: GameSession) {

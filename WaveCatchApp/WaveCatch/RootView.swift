@@ -212,6 +212,8 @@ struct RootView: View {
                 Text("NEW BEST")
                     .font(.system(size: 18, weight: .heavy, design: .rounded))
                     .foregroundColor(Palette.lime)
+                    .accessibilityIdentifier("newBest")
+                    .accessibilityLabel("NEW BEST")
             }
             Text("Best \(model.bestScore)")
                 .font(.system(size: 18, weight: .semibold, design: .rounded))

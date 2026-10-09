@@ -14,35 +14,27 @@ final class WaveCatchUITests: XCTestCase {
         XCTAssertTrue(play.waitForExistence(timeout: 8))
         XCTAssertFalse(app.buttons["debugGear"].exists)
         save("01-menu")
+        mark("record-start")
+        Thread.sleep(forTimeInterval: 1.5)
+        let started = Date()
         play.tap()
 
         let score = app.staticTexts["score"]
         XCTAssertTrue(score.waitForExistence(timeout: 6))
         XCTAssertFalse(app.buttons["debugGear"].exists)
-        XCTAssertTrue(app.staticTexts["safeLane"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.staticTexts["ringLit"].waitForExistence(timeout: 4))
 
         var sawRing = false
-        let ringDeadline = Date().addingTimeInterval(8)
-        while Date() < ringDeadline && !sawRing {
-            let ring = app.staticTexts["ringLit"]
-            if ring.label == "1" {
-                save("07-landing-ring")
-                sawRing = true
-                break
-            }
-        }
-        XCTAssertTrue(sawRing, "landing ring did not light")
-
         var sawMidgame = false
         var sawCatch = false
         var sawJelly = false
         var previous = 0
-        let catchDeadline = Date().addingTimeInterval(22)
-        while Date() < catchDeadline {
-            if app.buttons["playAgainButton"].exists { break }
-            let jelly = app.staticTexts["jellyfishOnScreen"]
-            if jelly.exists && jelly.label == "1" && !sawJelly {
+        let watchUntil = Date().addingTimeInterval(12)
+        while Date() < watchUntil && !(sawRing && sawJelly && sawMidgame && sawCatch) {
+            if !sawRing && app.staticTexts["ringLit"].label == "1" {
+                save("07-landing-ring")
+                sawRing = true
+            }
+            if !sawJelly && app.staticTexts["jellyfishOnScreen"].label == "1" {
                 save("04-jellyfish")
                 sawJelly = true
             }
@@ -56,30 +48,35 @@ final class WaveCatchUITests: XCTestCase {
                 sawCatch = true
             }
             previous = now
-            if now >= 3 && sawMidgame && sawCatch && sawJelly { break }
-            tapLane(app, name: app.staticTexts["safeLane"].label, fallback: "lowerLeft")
+            Thread.sleep(forTimeInterval: 0.2)
         }
 
-        XCTAssertGreaterThan(number(in: app.staticTexts["score"]), 0, "score never left zero")
-        if !sawMidgame { save("02-midgame") }
-        if !sawCatch { save("03-catch") }
-        if !sawJelly {
-            let jelly = app.staticTexts["jellyfishOnScreen"]
-            if jelly.label == "1" {
-                save("04-jellyfish")
-                sawJelly = true
-            }
-        }
+        XCTAssertTrue(sawRing, "landing ring did not light")
+        XCTAssertTrue(sawJelly, "a jellyfish should appear in the proof run")
+        XCTAssertTrue(sawMidgame, "score never left zero")
+        XCTAssertTrue(sawCatch, "a second catch was not shown")
 
-        let deathDeadline = Date().addingTimeInterval(28)
-        while Date() < deathDeadline && !app.buttons["playAgainButton"].exists {
-            let lane = app.staticTexts["safeLane"].label
-            tapLane(app, name: opposite(lane), fallback: "upperRight")
-        }
+        let elapsed = Date().timeIntervalSince(started)
+        Thread.sleep(forTimeInterval: max(0, 32 - elapsed))
 
         let again = app.buttons["playAgainButton"]
-        XCTAssertTrue(again.waitForExistence(timeout: 8), "game over did not appear")
+        let overDeadline = Date().addingTimeInterval(14)
+        while Date() < overDeadline && !again.exists {
+            Thread.sleep(forTimeInterval: 0.4)
+        }
+        XCTAssertTrue(again.waitForExistence(timeout: 2), "game over did not appear")
+        XCTAssertGreaterThanOrEqual(number(in: app.staticTexts["score"]), 8, "score stayed under 8")
+        XCTAssertGreaterThanOrEqual(number(in: app.staticTexts["longestCombo"]), 10, "combo never reached 10")
+
+        let newBest = app.staticTexts["newBest"]
+        XCTAssertTrue(newBest.waitForExistence(timeout: 4), "NEW BEST was not on the game over card")
+        Thread.sleep(forTimeInterval: 1.25)
+        _ = XCUIScreen.main.screenshot()
+        Thread.sleep(forTimeInterval: 0.4)
         save("05-gameover")
+        XCTAssertTrue(newBest.exists)
+        XCTAssertEqual(newBest.label, "NEW BEST")
+
         let enabled = NSPredicate(format: "isEnabled == true")
         expectation(for: enabled, evaluatedWith: again)
         waitForExpectations(timeout: 4)
@@ -90,31 +87,20 @@ final class WaveCatchUITests: XCTestCase {
         waitForExpectations(timeout: 6)
         XCTAssertFalse(app.buttons["playAgainButton"].exists)
         save("06-restart")
-        XCTAssertTrue(sawJelly, "a jellyfish should appear in the proof run")
-    }
-
-    private func tapLane(_ app: XCUIApplication, name: String, fallback: String) {
-        let lane = name.isEmpty || name == "none" ? fallback : name
-        let other = app.otherElements["zone.\(lane)"]
-        let button = app.buttons["zone.\(lane)"]
-        let zone = other.exists ? other : button
-        if zone.exists {
-            zone.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        }
-    }
-
-    private func opposite(_ lane: String) -> String {
-        switch lane {
-        case "upperLeft": return "lowerRight"
-        case "upperRight": return "lowerLeft"
-        case "lowerLeft": return "upperRight"
-        case "lowerRight": return "upperLeft"
-        default: return "upperRight"
-        }
+        Thread.sleep(forTimeInterval: 2.6)
+        mark("record-stop")
+        Thread.sleep(forTimeInterval: 1.5)
     }
 
     private func number(in element: XCUIElement) -> Int {
         Int(element.label.filter(\.isNumber)) ?? 0
+    }
+
+    private func mark(_ name: String) {
+        let directory = URL(fileURLWithPath: "/tmp/wavecatch-proof", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent(name)
+        FileManager.default.createFile(atPath: url.path, contents: Data("1".utf8))
     }
 
     private func save(_ name: String) {

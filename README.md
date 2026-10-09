@@ -69,9 +69,9 @@ The best score is stored in UserDefaults on the device.
 
 ## Proof run
 
-The UI test launches with `-uitest` and a fixed seed, taps Play, taps the 2×2 zones to catch, waits through three misses, then taps Play again. Accessibility identifiers: `score`, `lives`, `zone.upperLeft`, `zone.upperRight`, `zone.lowerLeft`, `zone.lowerRight`, `playAgainButton`.
+The UI test launches with `-uitest` and seed 7. That launch clears the saved best and steers the surfer inside the app: it catches until the combo reaches 10, lets one jellyfish pass, then misses until the Game over card. The test taps Play, waits for that card (including NEW BEST), taps Play again, and leaves a couple of seconds of the next run on screen. Recording starts when the menu is up and stops before the app quits. Accessibility identifiers: `score`, `lives`, `newBest`, `longestCombo`, `zone.upperLeft`, `zone.upperRight`, `zone.lowerLeft`, `zone.lowerRight`, `playAgainButton`.
 
-GitHub Actions on `macos-latest` runs `swift test`, `xcodegen`, an iOS Simulator build with signing off, and that UI test while `simctl` records the screen. The clip is trimmed to about 30 seconds. Screenshots and the video are uploaded as the `proof` artifact.
+GitHub Actions on `macos-latest` runs `swift test`, `xcodegen`, an iOS Simulator build with signing off, and that UI test. The clip is the gameplay window, scaled to about 590×1280 and kept under 15 MB. Screenshots and the video are uploaded as the `proof` artifact.
 
 ## Still needed for TestFlight
 

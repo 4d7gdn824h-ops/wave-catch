@@ -153,9 +153,34 @@ jobs:
             exit "$BAR"
           fi
           mkdir -p /tmp/wavecatch-proof "$GITHUB_WORKSPACE/docs/proof"
-          xcrun simctl io "${{ steps.sim.outputs.udid }}" recordVideo --codec h264 --force /tmp/wavecatch-proof/raw.mp4 &
-          echo $! > /tmp/wavecatch-proof/record.pid
-          sleep 1
+          rm -f /tmp/wavecatch-proof/record-start /tmp/wavecatch-proof/record-stop /tmp/wavecatch-proof/record-cancel /tmp/wavecatch-proof/record.pid /tmp/wavecatch-proof/raw.mp4
+          (
+            deadline=$((SECONDS + 180))
+            while [ ! -f /tmp/wavecatch-proof/record-start ] && [ ! -f /tmp/wavecatch-proof/record-cancel ]; do
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "recorder: timed out waiting for the menu"
+                exit 0
+              fi
+              sleep 0.2
+            done
+            if [ ! -f /tmp/wavecatch-proof/record-start ]; then
+              echo "recorder: cancelled before the menu"
+              exit 0
+            fi
+            echo "recorder: menu is up"
+            xcrun simctl io "${{ steps.sim.outputs.udid }}" recordVideo --codec h264 --force /tmp/wavecatch-proof/raw.mp4 &
+            echo $! > /tmp/wavecatch-proof/record.pid
+            while [ ! -f /tmp/wavecatch-proof/record-stop ] && [ ! -f /tmp/wavecatch-proof/record-cancel ]; do
+              sleep 0.2
+            done
+            sleep 0.4
+            if [ -f /tmp/wavecatch-proof/record.pid ]; then
+              kill -INT "$(cat /tmp/wavecatch-proof/record.pid)" || true
+              wait "$(cat /tmp/wavecatch-proof/record.pid)" || true
+            fi
+            echo "recorder: stopped"
+          ) &
+          WATCH_PID=$!
           xcodebuild test-without-building \
             -project WaveCatch.xcodeproj \
             -scheme WaveCatch \
@@ -169,17 +194,19 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM=""
           STATUS=$?
-          if [ -f /tmp/wavecatch-proof/record.pid ]; then
-            kill -INT "$(cat /tmp/wavecatch-proof/record.pid)" || true
-            wait "$(cat /tmp/wavecatch-proof/record.pid)" || true
-          fi
-          sleep 2
+          touch /tmp/wavecatch-proof/record-cancel
+          wait "$WATCH_PID" || true
+          sleep 1
           swiftc "$GITHUB_WORKSPACE/Scripts/compress-proof.swift" -o /tmp/compress-proof
-          /tmp/compress-proof /tmp/wavecatch-proof/raw.mp4 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4" || cp /tmp/wavecatch-proof/raw.mp4 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4" || true
+          /tmp/compress-proof /tmp/wavecatch-proof/raw.mp4 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
+          COMPRESS=$?
           cp -f /tmp/wavecatch-proof/*.png "$GITHUB_WORKSPACE/docs/proof/" || true
           ls -lh "$GITHUB_WORKSPACE/docs/proof" || true
           sips -g pixelWidth -g pixelHeight "$GITHUB_WORKSPACE"/docs/proof/*.png || true
-          exit $STATUS
+          if [ "$STATUS" -ne 0 ]; then
+            exit "$STATUS"
+          fi
+          exit "$COMPRESS"
 
       - name: Upload proof
         if: always()
