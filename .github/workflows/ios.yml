@@ -17,6 +17,9 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Install ffmpeg
+        run: brew install ffmpeg
+
       - name: Generate the Xcode project
         working-directory: WaveCatchApp
         run: xcodegen generate
@@ -197,8 +200,7 @@ jobs:
           touch /tmp/wavecatch-proof/record-cancel
           wait "$WATCH_PID" || true
           sleep 1
-          swiftc "$GITHUB_WORKSPACE/Scripts/compress-proof.swift" -o /tmp/compress-proof
-          /tmp/compress-proof /tmp/wavecatch-proof/raw.mp4 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
+          bash "$GITHUB_WORKSPACE/Scripts/compress-proof.sh" /tmp/wavecatch-proof/raw.mp4 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
           COMPRESS=$?
           cp -f /tmp/wavecatch-proof/*.png "$GITHUB_WORKSPACE/docs/proof/" || true
           for shot in "$GITHUB_WORKSPACE"/docs/proof/*.png; do
@@ -229,4 +231,12 @@ jobs:
         with:
           name: proof
           path: docs/proof/
+          if-no-files-found: warn
+
+      - name: Upload raw recording
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-recording
+          path: /tmp/wavecatch-proof/raw.mp4
           if-no-files-found: warn
