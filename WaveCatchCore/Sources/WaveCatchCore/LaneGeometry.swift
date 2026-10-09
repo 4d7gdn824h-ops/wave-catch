@@ -8,9 +8,11 @@ import Foundation
 ///
 /// Upper lanes leave the lip of the curling wave and arc down toward the upper
 /// corner buttons. Lower lanes skim in from the left and right along the
-/// waterline, with a small bob, and finish next to the lower corner buttons.
-/// The surfer stays in the center. Paths stay inset so a sprite drawn at 1.3×
-/// around each sample remains on screen.
+/// waterline, with a small bob, and finish above the lower corner buttons.
+/// A 1.3× sprite on a lower sample stays at least 12 points clear of those
+/// buttons on a landscape Pro Max, in both orientations. The surfer stays in
+/// the center. Paths stay inset so a sprite drawn at 1.3× around each sample
+/// remains on screen.
 public enum LaneGeometry {
     public struct Point: Equatable {
         public var x: Double
@@ -40,11 +42,11 @@ public enum LaneGeometry {
                 u
             )
         case .lowerLeft:
-            let y = 0.64 + 0.012 * sin(u * Double.pi * 3)
-            return Point(x: 0.16 + 0.10 * u, y: y)
+            let y = 0.496 + 0.008 * sin(u * Double.pi * 3)
+            return Point(x: 0.22 + 0.10 * u, y: y)
         case .lowerRight:
-            let y = 0.64 + 0.012 * sin(u * Double.pi * 3 + 0.6)
-            return Point(x: 0.84 - 0.10 * u, y: y)
+            let y = 0.496 + 0.008 * sin(u * Double.pi * 3 + 0.6)
+            return Point(x: 0.78 - 0.10 * u, y: y)
         }
     }
 

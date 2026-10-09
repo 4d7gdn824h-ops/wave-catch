@@ -209,7 +209,9 @@ struct RootView: View {
     }
 
     private func gameOver(size: CGSize) -> some View {
-        VStack(spacing: 14) {
+        let cardWidth = size.width * 0.55
+        let cardHeight = size.height * 0.80
+        VStack(spacing: 12) {
             Text("Game over")
                 .font(.system(size: 34, weight: .black, design: .rounded))
                 .foregroundColor(Palette.foam)
@@ -235,18 +237,20 @@ struct RootView: View {
                 Text("Play again")
                     .font(.system(size: 26, weight: .heavy, design: .rounded))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
+                    .padding(.vertical, 14)
             }
             .buttonStyle(.borderedProminent)
             .tint(model.againReady ? Palette.hotPink : Palette.ink)
             .disabled(!model.againReady)
+            .frame(width: cardWidth * 0.60)
             .accessibilityIdentifier("playAgainButton")
         }
-        .padding(24)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 18)
+        .frame(width: cardWidth, height: cardHeight)
         .background(Palette.indigo.opacity(0.92))
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 28).stroke(Palette.foam, lineWidth: 3))
-        .padding(.horizontal, 24)
         .frame(width: size.width, height: size.height)
     }
 

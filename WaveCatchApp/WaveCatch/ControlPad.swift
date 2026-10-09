@@ -74,38 +74,19 @@ struct CornerControls: View {
     private func cornerFace(_ lane: Lane) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Palette.sand.opacity(0.5))
-            StripeFill()
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .opacity(0.18)
+                .fill(Palette.buttonSand.opacity(0.35))
             if pressed == lane {
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Palette.foam.opacity(0.55))
+                    .fill(Palette.buttonSand.opacity(0.92))
             }
             ArrowMark(lane: lane)
-                .stroke(Palette.ink, lineWidth: 3)
+                .stroke(Palette.buttonPlum, lineWidth: 3)
                 .frame(width: 28, height: 28)
         }
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Palette.violet.opacity(0.55), lineWidth: 2)
+                .stroke(Palette.buttonPlum, lineWidth: 2)
         )
-    }
-}
-
-private struct StripeFill: View {
-    var body: some View {
-        GeometryReader { geo in
-            Path { path in
-                var x: CGFloat = -geo.size.height
-                while x < geo.size.width {
-                    path.move(to: CGPoint(x: x, y: geo.size.height))
-                    path.addLine(to: CGPoint(x: x + geo.size.height, y: 0))
-                    x += 18
-                }
-            }
-            .stroke(Palette.hotPink.opacity(0.45), lineWidth: 4)
-        }
     }
 }
 
