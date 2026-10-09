@@ -19,8 +19,8 @@ guard seconds.isFinite, seconds > 0.2 else {
 }
 
 let keep = seconds > 48 ? 45.0 : seconds
-let outWidth = 590
-let outHeight = 1280
+let outWidth = 1280
+let outHeight = 590
 
 guard let track = asset.tracks(withMediaType: .video).first else {
     fputs("recording has no video track\n", stderr)

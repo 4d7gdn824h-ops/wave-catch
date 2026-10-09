@@ -25,7 +25,7 @@ final class GameScene: SKScene {
     private var shaking = false
 
     override init() {
-        super.init(size: CGSize(width: 390, height: 844))
+        super.init(size: CGSize(width: 932, height: 430))
         scaleMode = .resizeFill
         backgroundColor = Palette.uiIndigo
         addChild(world)
@@ -153,8 +153,8 @@ final class GameScene: SKScene {
     }
 
     private func addSun() {
-        let center = sk(LaneGeometry.Point(x: 0.72, y: 0.30))
-        let sun = SKShapeNode(circleOfRadius: 58)
+        let center = sk(LaneGeometry.Point(x: 0.70, y: 0.18))
+        let sun = SKShapeNode(circleOfRadius: 42)
         sun.fillColor = Palette.uiSun
         sun.strokeColor = Palette.uiInk
         sun.lineWidth = 4
@@ -162,7 +162,7 @@ final class GameScene: SKScene {
         sun.zPosition = 1
         world.addChild(sun)
         for index in 0..<3 {
-            let band = SKShapeNode(rectOf: CGSize(width: 120, height: 8), cornerRadius: 2)
+            let band = SKShapeNode(rectOf: CGSize(width: 88, height: 6), cornerRadius: 2)
             band.fillColor = Palette.uiTangerine.withAlphaComponent(0.85)
             band.strokeColor = .clear
             band.position = CGPoint(x: center.x, y: center.y + 24 - CGFloat(index) * 22)
@@ -173,11 +173,11 @@ final class GameScene: SKScene {
 
     private func addWave() {
         let path = CGMutablePath()
-        let left = sk(LaneGeometry.Point(x: 0, y: 0.20))
-        let lip = sk(LaneGeometry.Point(x: 0.55, y: 0.12))
-        let right = sk(LaneGeometry.Point(x: 1, y: 0.24))
-        let foot = sk(LaneGeometry.Point(x: 1, y: 0.40))
-        let footLeft = sk(LaneGeometry.Point(x: 0, y: 0.36))
+        let left = sk(LaneGeometry.Point(x: 0.08, y: 0.36))
+        let lip = sk(LaneGeometry.Point(x: 0.50, y: 0.22))
+        let right = sk(LaneGeometry.Point(x: 0.92, y: 0.36))
+        let foot = sk(LaneGeometry.Point(x: 0.92, y: 0.56))
+        let footLeft = sk(LaneGeometry.Point(x: 0.08, y: 0.54))
         path.move(to: left)
         path.addQuadCurve(to: right, control: lip)
         path.addLine(to: foot)
@@ -191,9 +191,9 @@ final class GameScene: SKScene {
         world.addChild(wave)
 
         let curl = CGMutablePath()
-        let curlStart = sk(LaneGeometry.Point(x: 0.42, y: 0.16))
-        let curlEnd = sk(LaneGeometry.Point(x: 0.78, y: 0.18))
-        let curlControl = sk(LaneGeometry.Point(x: 0.62, y: 0.08))
+        let curlStart = sk(LaneGeometry.Point(x: 0.30, y: 0.30))
+        let curlEnd = sk(LaneGeometry.Point(x: 0.72, y: 0.30))
+        let curlControl = sk(LaneGeometry.Point(x: 0.50, y: 0.16))
         curl.move(to: curlStart)
         curl.addQuadCurve(to: curlEnd, control: curlControl)
         let lipNode = SKShapeNode(path: curl)
@@ -205,10 +205,11 @@ final class GameScene: SKScene {
     }
 
     private func addShore() {
-        let shore = SKShapeNode(rectOf: CGSize(width: size.width + 4, height: size.height * 0.5))
+        let shoreHeight = size.height * 0.48
+        let shore = SKShapeNode(rectOf: CGSize(width: size.width + 4, height: shoreHeight))
         shore.fillColor = Palette.uiDeepSea
         shore.strokeColor = .clear
-        shore.position = CGPoint(x: size.width / 2, y: size.height * 0.22)
+        shore.position = CGPoint(x: size.width / 2, y: shoreHeight / 2)
         shore.zPosition = 1.5
         world.addChild(shore)
     }

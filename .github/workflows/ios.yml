@@ -201,8 +201,23 @@ jobs:
           /tmp/compress-proof /tmp/wavecatch-proof/raw.mp4 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
           COMPRESS=$?
           cp -f /tmp/wavecatch-proof/*.png "$GITHUB_WORKSPACE/docs/proof/" || true
+          for shot in "$GITHUB_WORKSPACE"/docs/proof/*.png; do
+            W=$(sips -g pixelWidth "$shot" | awk '/pixelWidth/{print $2}')
+            H=$(sips -g pixelHeight "$shot" | awk '/pixelHeight/{print $2}')
+            if [ -n "$W" ] && [ -n "$H" ] && [ "$H" -gt "$W" ]; then
+              sips -r 90 "$shot" >/dev/null
+            fi
+          done
           ls -lh "$GITHUB_WORKSPACE/docs/proof" || true
           sips -g pixelWidth -g pixelHeight "$GITHUB_WORKSPACE"/docs/proof/*.png || true
+          GAME_W=$(sips -g pixelWidth "$GITHUB_WORKSPACE/docs/proof/05-gameover.png" | awk '/pixelWidth/{print $2}')
+          GAME_H=$(sips -g pixelHeight "$GITHUB_WORKSPACE/docs/proof/05-gameover.png" | awk '/pixelHeight/{print $2}')
+          if [ "$GAME_W" != "2796" ] || [ "$GAME_H" != "1290" ]; then
+            echo "05-gameover.png is ${GAME_W}x${GAME_H}, expected 2796x1290"
+            if [ "$STATUS" -eq 0 ]; then
+              STATUS=1
+            fi
+          fi
           if [ "$STATUS" -ne 0 ]; then
             exit "$STATUS"
           fi
