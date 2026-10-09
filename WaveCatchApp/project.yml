@@ -1,0 +1,82 @@
+name: WaveCatch
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  developmentLanguage: en
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+packages:
+  WaveCatchCore:
+    path: ../WaveCatchCore
+targets:
+  WaveCatch:
+    type: application
+    platform: iOS
+    sources:
+      - path: WaveCatch
+        excludes:
+          - Info.plist
+    dependencies:
+      - package: WaveCatchCore
+        product: WaveCatchCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.wavecatch
+        PRODUCT_NAME: WaveCatch
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+        INFOPLIST_FILE: WaveCatch/Info.plist
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_TESTABILITY: YES
+        SWIFT_VERSION: "5.9"
+    info:
+      path: WaveCatch/Info.plist
+      properties:
+        CFBundleDisplayName: Wave Catch
+        CFBundleName: WaveCatch
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UIApplicationSupportsIndirectInputEvents: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+  WaveCatchUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: WaveCatchUITests
+    dependencies:
+      - target: WaveCatch
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.wavecatch.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: WaveCatch
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "5.9"
+schemes:
+  WaveCatch:
+    build:
+      targets:
+        WaveCatch: all
+        WaveCatchUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - name: WaveCatchUITests
+    archive:
+      config: Release

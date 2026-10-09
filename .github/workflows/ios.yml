@@ -1,0 +1,119 @@
+name: iOS
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Core tests
+        run: swift test --package-path WaveCatchCore
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate the Xcode project
+        working-directory: WaveCatchApp
+        run: xcodegen generate
+
+      - name: Choose a simulator
+        id: sim
+        run: |
+          python3 - <<'PY'
+          import json, re, subprocess
+          raw = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"])
+          data = json.loads(raw)
+          candidates = []
+          for runtime, devices in data.get("devices", {}).items():
+              if "iOS" not in runtime:
+                  continue
+              match = re.search(r"iOS-(\d+)(?:-(\d+))?", runtime)
+              major = int(match.group(1)) if match else 0
+              minor = int(match.group(2) or 0) if match else 0
+              for device in devices:
+                  if not device.get("isAvailable", True):
+                      continue
+                  name = device.get("name", "")
+                  if not name.startswith("iPhone"):
+                      continue
+                  number = 0
+                  found = re.search(r"iPhone\s+(\d+)", name)
+                  if found:
+                      number = int(found.group(1))
+                  rank = 0 if "SE" in name else 1
+                  candidates.append((rank, major, minor, number, name, device["udid"]))
+          if not candidates:
+              raise SystemExit("no iPhone simulator")
+          candidates.sort()
+          _, _, _, _, name, udid = candidates[-1]
+          print(f"name={name}")
+          print(f"udid={udid}")
+          with open("/tmp/sim-choice.txt", "w") as path:
+              path.write(f"{name}\n{udid}\n")
+          PY
+          NAME=$(sed -n '1p' /tmp/sim-choice.txt)
+          UDID=$(sed -n '2p' /tmp/sim-choice.txt)
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "Using $NAME ($UDID)"
+
+      - name: Build for testing
+        working-directory: WaveCatchApp
+        run: |
+          xcodebuild build-for-testing \
+            -project WaveCatch.xcodeproj \
+            -scheme WaveCatch \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath /tmp/WaveCatchDD \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+
+      - name: Boot simulator, record, and play a full game
+        working-directory: WaveCatchApp
+        run: |
+          set +e
+          xcrun simctl boot "${{ steps.sim.outputs.udid }}" || true
+          xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}" -b
+          mkdir -p /tmp/wavecatch-proof "$GITHUB_WORKSPACE/docs/proof"
+          xcrun simctl io booted recordVideo --codec h264 --force /tmp/wavecatch-proof/raw.mp4 &
+          echo $! > /tmp/wavecatch-proof/record.pid
+          sleep 1
+          xcodebuild test-without-building \
+            -project WaveCatch.xcodeproj \
+            -scheme WaveCatch \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath /tmp/WaveCatchDD \
+            -only-testing:WaveCatchUITests/WaveCatchUITests/testFullGameProof \
+            -parallel-testing-enabled NO \
+            -resultBundlePath /tmp/wavecatch-proof/Test.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+          STATUS=$?
+          if [ -f /tmp/wavecatch-proof/record.pid ]; then
+            kill -INT "$(cat /tmp/wavecatch-proof/record.pid)" || true
+            wait "$(cat /tmp/wavecatch-proof/record.pid)" || true
+          fi
+          sleep 2
+          swiftc "$GITHUB_WORKSPACE/Scripts/compress-proof.swift" -o /tmp/compress-proof
+          /tmp/compress-proof /tmp/wavecatch-proof/raw.mp4 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4" || cp /tmp/wavecatch-proof/raw.mp4 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4" || true
+          cp -f /tmp/wavecatch-proof/*.png "$GITHUB_WORKSPACE/docs/proof/" || true
+          ls -lh "$GITHUB_WORKSPACE/docs/proof" || true
+          exit $STATUS
+
+      - name: Upload proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof
+          path: docs/proof/
+          if-no-files-found: warn
