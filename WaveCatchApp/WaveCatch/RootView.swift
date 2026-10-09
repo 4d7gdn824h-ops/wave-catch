@@ -1,19 +1,32 @@
 import SwiftUI
 import SpriteKit
+import UIKit
 import WaveCatchCore
 
 struct RootView: View {
     @StateObject private var model = GameModel()
+    @State private var safeTop: CGFloat = 0
+    @State private var safeBottom: CGFloat = 0
 
     var body: some View {
         GeometryReader { geo in
-            let top = geo.safeAreaInsets.top
-            let bottom = geo.safeAreaInsets.bottom
-            let safeHeight = geo.size.height - top - bottom
+            let top = max(safeTop, geo.safeAreaInsets.top)
+            let bottom = max(safeBottom, geo.safeAreaInsets.bottom)
+            let safeHeight = max(1, geo.size.height - top - bottom)
             let fraction = model.largePad ? 0.55 : 0.45
             let padHeight = safeHeight * fraction
-            let padTop = geo.size.height - bottom - padHeight
+            let padCenterY = geo.size.height - bottom - padHeight / 2
             ZStack(alignment: .topLeading) {
+                SafeAreaProbe { insets in
+                    let nextTop = insets.top
+                    let nextBottom = insets.bottom
+                    if abs(nextTop - safeTop) > 0.5 || abs(nextBottom - safeBottom) > 0.5 {
+                        safeTop = nextTop
+                        safeBottom = nextBottom
+                    }
+                }
+                .frame(width: geo.size.width, height: geo.size.height)
+
                 SceneHost(scene: model.scene)
                     .frame(width: geo.size.width, height: geo.size.height)
 
@@ -30,7 +43,7 @@ struct RootView: View {
                     .frame(width: geo.size.width, height: model.wholeScreenPad ? geo.size.height : padHeight)
                     .position(
                         x: geo.size.width / 2,
-                        y: model.wholeScreenPad ? geo.size.height / 2 : padTop + padHeight / 2
+                        y: model.wholeScreenPad ? geo.size.height / 2 : padCenterY
                     )
                 }
 
@@ -46,6 +59,9 @@ struct RootView: View {
             }
         }
         .ignoresSafeArea()
+        .statusBarHidden(false)
+        .preferredColorScheme(.dark)
+        .background(TuningGesture { model.showTuning = true })
         .sheet(isPresented: $model.showDebug) {
             DebugPanel(model: model)
         }
@@ -84,17 +100,17 @@ struct RootView: View {
                             .clipShape(Circle())
                     }
                     .accessibilityIdentifier("pauseButton")
-                    #if DEBUG
-                    Button(action: { model.showDebug = true }) {
-                        Image(systemName: "gearshape.fill")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(Palette.ink)
-                            .frame(width: 44, height: 44)
-                            .background(Palette.sand)
-                            .clipShape(Circle())
+                    if model.showTuning {
+                        Button(action: { model.showDebug = true }) {
+                            Image(systemName: "gearshape.fill")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(Palette.ink)
+                                .frame(width: 44, height: 44)
+                                .background(Palette.sand)
+                                .clipShape(Circle())
+                        }
+                        .accessibilityIdentifier("debugGear")
                     }
-                    .accessibilityIdentifier("debugGear")
-                    #endif
                 }
             }
             HStack {
@@ -110,11 +126,17 @@ struct RootView: View {
                     .frame(width: 24, height: 24)
                     .accessibilityIdentifier("jellyfishOnScreen")
                     .accessibilityLabel(model.jellyfishOnScreen ? "1" : "0")
+                Text(model.ringLit ? "1" : "0")
+                    .font(.system(size: 4))
+                    .foregroundColor(Palette.indigo)
+                    .frame(width: 24, height: 24)
+                    .accessibilityIdentifier("ringLit")
+                    .accessibilityLabel(model.ringLit ? "1" : "0")
                 Spacer()
             }
         }
         .padding(.horizontal, 16)
-        .padding(.top, top + 8)
+        .padding(.top, top + 6)
         .frame(width: width, alignment: .top)
     }
 
@@ -275,6 +297,116 @@ struct SceneHost: UIViewRepresentable {
     func updateUIView(_ uiView: SKView, context: Context) {
         if uiView.scene !== scene {
             uiView.presentScene(scene)
+        }
+    }
+}
+
+/// Reads `window.safeAreaInsets`, which stays correct when the SwiftUI root is full-bleed.
+struct SafeAreaProbe: UIViewRepresentable {
+    var onChange: (UIEdgeInsets) -> Void
+
+    func makeUIView(context: Context) -> ProbeView {
+        let view = ProbeView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateUIView(_ uiView: ProbeView, context: Context) {
+        uiView.onChange = onChange
+        uiView.notify()
+    }
+
+    final class ProbeView: UIView {
+        var onChange: ((UIEdgeInsets) -> Void)?
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            backgroundColor = .clear
+        }
+
+        required init?(coder: NSCoder) {
+            return nil
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            notify()
+        }
+
+        override func safeAreaInsetsDidChange() {
+            super.safeAreaInsetsDidChange()
+            notify()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            notify()
+        }
+
+        private var lastReported = UIEdgeInsets(top: -1, left: 0, bottom: 0, right: 0)
+
+        func notify() {
+            let fromWindow = window?.safeAreaInsets ?? .zero
+            let fromSelf = safeAreaInsets
+            let insets = UIEdgeInsets(
+                top: max(fromWindow.top, fromSelf.top),
+                left: max(fromWindow.left, fromSelf.left),
+                bottom: max(fromWindow.bottom, fromSelf.bottom),
+                right: max(fromWindow.right, fromSelf.right)
+            )
+            guard insets != .zero, insets != lastReported else { return }
+            lastReported = insets
+            let report = insets
+            DispatchQueue.main.async { [weak self] in
+                self?.onChange?(report)
+            }
+        }
+    }
+}
+
+/// Hidden 3-finger long-press reveals the tuning gear. It does not steal one-finger taps.
+struct TuningGesture: UIViewRepresentable {
+    var onReveal: () -> Void
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onReveal = onReveal
+        guard context.coordinator.installed == nil else { return }
+        DispatchQueue.main.async {
+            guard let window = uiView.window, context.coordinator.installed == nil else { return }
+            let gesture = UILongPressGestureRecognizer(
+                target: context.coordinator,
+                action: #selector(Coordinator.fired(_:))
+            )
+            gesture.numberOfTouchesRequired = 3
+            gesture.minimumPressDuration = 0.5
+            gesture.cancelsTouchesInView = false
+            gesture.delaysTouchesBegan = false
+            gesture.delaysTouchesEnded = false
+            window.addGestureRecognizer(gesture)
+            context.coordinator.installed = gesture
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator: NSObject {
+        var onReveal: () -> Void = {}
+        var installed: UILongPressGestureRecognizer?
+
+        @objc func fired(_ gesture: UILongPressGestureRecognizer) {
+            if gesture.state == .began {
+                onReveal()
+            }
         }
     }
 }

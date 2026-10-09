@@ -21,6 +21,8 @@ final class GameModel: ObservableObject {
     @Published var jellyfishOnScreen = false
     @Published var pressedLane: Lane?
     @Published var showDebug = false
+    @Published var showTuning = false
+    @Published var ringLit = false
     @Published var largePad = false
     @Published var wholeScreenPad = false
     @Published var swipeEnabled = false
@@ -41,6 +43,7 @@ final class GameModel: ObservableObject {
     private let tones = TonePlayer()
     private var againUnlock: DispatchWorkItem?
     private var glowClear: DispatchWorkItem?
+    private var ringLitUntil = 0.0
 
     init() {
         let args = ProcessInfo.processInfo.arguments
@@ -51,6 +54,7 @@ final class GameModel: ObservableObject {
         }
         seed = parsedSeed
         bestScore = store.bestScore
+        showTuning = args.contains("-showTuning")
         if uitest {
             tuning.speedMultiplier = 0.70
             tuning.demoSpotlightJellyfish = true
@@ -77,6 +81,8 @@ final class GameModel: ObservableObject {
         bigWavePhase = .idle
         safeLane = "none"
         jellyfishOnScreen = false
+        ringLit = false
+        ringLitUntil = 0
         mode = .playing
         haptics.prepareAll()
     }
@@ -91,7 +97,7 @@ final class GameModel: ObservableObject {
             if self?.pressedLane == lane { self?.pressedLane = nil }
         }
         glowClear = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
         if changed && !muted {
             tones.play(frequency: 280, duration: 0.05, volume: 0.12, pan: lane.isRight ? 0.4 : -0.4)
         }
@@ -123,6 +129,11 @@ final class GameModel: ObservableObject {
         if safeLane != lane { safeLane = lane }
         let jelly = session.liveObjects.contains { $0.kind == .jellyfish }
         if jellyfishOnScreen != jelly { jellyfishOnScreen = jelly }
+        if session.liveObjects.contains(where: { $0.telegraph }) {
+            ringLitUntil = session.time + 0.35
+        }
+        let lit = session.time < ringLitUntil
+        if ringLit != lit { ringLit = lit }
     }
 
     private func react(to events: [GameEvent], session: GameSession) {

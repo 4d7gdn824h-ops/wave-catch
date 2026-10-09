@@ -12,12 +12,27 @@ final class WaveCatchUITests: XCTestCase {
 
         let play = app.buttons["playButton"]
         XCTAssertTrue(play.waitForExistence(timeout: 8))
+        XCTAssertFalse(app.buttons["debugGear"].exists)
         save("01-menu")
         play.tap()
 
         let score = app.staticTexts["score"]
         XCTAssertTrue(score.waitForExistence(timeout: 6))
+        XCTAssertFalse(app.buttons["debugGear"].exists)
         XCTAssertTrue(app.staticTexts["safeLane"].waitForExistence(timeout: 4))
+        XCTAssertTrue(app.staticTexts["ringLit"].waitForExistence(timeout: 4))
+
+        var sawRing = false
+        let ringDeadline = Date().addingTimeInterval(8)
+        while Date() < ringDeadline && !sawRing {
+            let ring = app.staticTexts["ringLit"]
+            if ring.label == "1" {
+                save("07-landing-ring")
+                sawRing = true
+                break
+            }
+        }
+        XCTAssertTrue(sawRing, "landing ring did not light")
 
         var sawMidgame = false
         var sawCatch = false

@@ -7,8 +7,9 @@ import Foundation
 /// down. The touch pad occupies the bottom 45 percent, so every sample stays above y = 0.55.
 ///
 /// Upper lanes leave the lip of the curling wave and arc down to the surfer's hands.
-/// Lower lanes skim in from the side edges along the waterline, with a small bob.
-/// Nothing is aimed out of a screen corner.
+/// Lower lanes skim in from the left and right along the waterline, with a small bob.
+/// Paths stay inset from the screen edges so a sprite drawn at 1.3× around each
+/// sample is fully on screen. Nothing is aimed out of a screen corner.
 public enum LaneGeometry {
     public struct Point: Equatable {
         public var x: Double
@@ -38,11 +39,11 @@ public enum LaneGeometry {
                 u
             )
         case .lowerLeft:
-            let y = 0.50 + 0.018 * sin(u * Double.pi * 3)
-            return Point(x: 0.0 + 0.40 * u, y: y)
+            let y = 0.46 + 0.012 * sin(u * Double.pi * 3)
+            return Point(x: 0.14 + 0.26 * u, y: y)
         case .lowerRight:
-            let y = 0.50 + 0.018 * sin(u * Double.pi * 3 + 0.6)
-            return Point(x: 1.0 - 0.40 * u, y: y)
+            let y = 0.46 + 0.012 * sin(u * Double.pi * 3 + 0.6)
+            return Point(x: 0.86 - 0.26 * u, y: y)
         }
     }
 

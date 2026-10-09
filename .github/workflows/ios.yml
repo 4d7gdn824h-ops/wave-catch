@@ -28,7 +28,8 @@ jobs:
           import json, re, subprocess
           raw = subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"])
           data = json.loads(raw)
-          candidates = []
+          wanted = ["iPhone 15 Pro Max", "iPhone 16 Pro Max"]
+          found = {name: [] for name in wanted}
           for runtime, devices in data.get("devices", {}).items():
               if "iOS" not in runtime:
                   continue
@@ -39,18 +40,23 @@ jobs:
                   if not device.get("isAvailable", True):
                       continue
                   name = device.get("name", "")
-                  if not name.startswith("iPhone"):
-                      continue
-                  number = 0
-                  found = re.search(r"iPhone\s+(\d+)", name)
-                  if found:
-                      number = int(found.group(1))
-                  rank = 0 if "SE" in name else 1
-                  candidates.append((rank, major, minor, number, name, device["udid"]))
-          if not candidates:
-              raise SystemExit("no iPhone simulator")
-          candidates.sort()
-          _, _, _, _, name, udid = candidates[-1]
+                  if name in found:
+                      found[name].append((major, minor, name, device["udid"]))
+          chosen = None
+          for name in wanted:
+              if found[name]:
+                  found[name].sort()
+                  chosen = found[name][-1]
+                  break
+          if chosen is None:
+              names = sorted({
+                  device.get("name", "")
+                  for devices in data.get("devices", {}).values()
+                  for device in devices
+                  if device.get("name", "").startswith("iPhone")
+              })
+              raise SystemExit("need iPhone 15 Pro Max or iPhone 16 Pro Max; have: " + ", ".join(names))
+          _, _, name, udid = chosen
           print(f"name={name}")
           print(f"udid={udid}")
           with open("/tmp/sim-choice.txt", "w") as path:
@@ -82,8 +88,14 @@ jobs:
           set +e
           xcrun simctl boot "${{ steps.sim.outputs.udid }}" || true
           xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}" -b
+          xcrun simctl status_bar "${{ steps.sim.outputs.udid }}" override --time "9:41" --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
+          BAR=$?
+          if [ "$BAR" -ne 0 ]; then
+            echo "status bar override failed"
+            exit "$BAR"
+          fi
           mkdir -p /tmp/wavecatch-proof "$GITHUB_WORKSPACE/docs/proof"
-          xcrun simctl io booted recordVideo --codec h264 --force /tmp/wavecatch-proof/raw.mp4 &
+          xcrun simctl io "${{ steps.sim.outputs.udid }}" recordVideo --codec h264 --force /tmp/wavecatch-proof/raw.mp4 &
           echo $! > /tmp/wavecatch-proof/record.pid
           sleep 1
           xcodebuild test-without-building \
@@ -108,6 +120,7 @@ jobs:
           /tmp/compress-proof /tmp/wavecatch-proof/raw.mp4 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4" || cp /tmp/wavecatch-proof/raw.mp4 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4" || true
           cp -f /tmp/wavecatch-proof/*.png "$GITHUB_WORKSPACE/docs/proof/" || true
           ls -lh "$GITHUB_WORKSPACE/docs/proof" || true
+          sips -g pixelWidth -g pixelHeight "$GITHUB_WORKSPACE"/docs/proof/*.png || true
           exit $STATUS
 
       - name: Upload proof

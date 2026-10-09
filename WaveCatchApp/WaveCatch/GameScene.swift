@@ -9,7 +9,10 @@ final class GameScene: SKScene {
     private var backdropSize = CGSize.zero
     private let surfer = SKNode()
     private var objectNodes: [Int: SKShapeNode] = [:]
-    private var ringNodes: [Lane: SKShapeNode] = [:]
+    private var ringNodes: [Lane: SKNode] = [:]
+    private var ringKind: [Lane: ObjectKind] = [:]
+    private var ringUntil: [Lane: TimeInterval] = [:]
+    private let itemScale: CGFloat = 1.3
     private var banner: SKLabelNode?
     private var poseFrom = CGPoint.zero
     private var poseTo = CGPoint.zero
@@ -45,6 +48,8 @@ final class GameScene: SKScene {
         poseFrom = poseTarget(session.position)
         poseTo = poseFrom
         lastTime = nil
+        ringKind.removeAll()
+        ringUntil.removeAll()
     }
 
     override func update(_ currentTime: TimeInterval) {
@@ -108,7 +113,7 @@ final class GameScene: SKScene {
         }
         placeSurfer(at: currentPose(now: now), now: now)
         syncObjects(session)
-        syncRings(session)
+        syncRings(session, now: now)
         syncBanner(session)
     }
 
@@ -224,57 +229,81 @@ final class GameScene: SKScene {
             }
             node.position = point
             node.zPosition = 5
-            node.setScale(object.wobbling ? 1.08 : 1)
+            node.setScale(itemScale * (object.wobbling ? 1.08 : 1))
         }
         for (id, node) in objectNodes where !alive.contains(id) {
             node.run(.sequence([
-                .group([.scale(to: 1.3, duration: 0.08), .fadeOut(withDuration: 0.14)]),
+                .group([.scale(to: itemScale * 1.15, duration: 0.08), .fadeOut(withDuration: 0.14)]),
                 .removeFromParent(),
             ]))
             objectNodes[id] = nil
         }
     }
 
-    private func syncRings(_ session: GameSession) {
+    private func syncRings(_ session: GameSession, now: TimeInterval) {
         var shown: [Lane: ObjectKind] = [:]
         for object in session.liveObjects where object.telegraph {
             if shown[object.lane] == nil || object.kind == .jellyfish {
                 shown[object.lane] = object.kind
             }
         }
+        for (lane, kind) in shown {
+            ringKind[lane] = kind
+            ringUntil[lane] = now + 0.35
+        }
         for lane in Lane.allCases {
-            guard let kind = shown[lane] else {
+            let until = ringUntil[lane] ?? 0
+            guard until > now, let kind = ringKind[lane] else {
                 ringNodes[lane]?.removeFromParent()
                 ringNodes[lane] = nil
+                ringKind[lane] = nil
+                ringUntil[lane] = nil
                 continue
             }
-            let node = ringNodes[lane] ?? SKShapeNode()
-            if ringNodes[lane] == nil {
-                ringNodes[lane] = node
-                world.addChild(node)
+            let node = ringNodes[lane]
+            if node == nil || node?.name != kind.rawValue {
+                node?.removeFromParent()
+                let made = makeRing(kind)
+                ringNodes[lane] = made
+                world.addChild(made)
             }
-            let spot = sk(LaneGeometry.catchSpot(lane))
-            node.position = spot
-            node.zPosition = 4
-            node.path = ringPath(kind: kind)
-            if kind == .jellyfish {
-                node.strokeColor = Palette.uiJelly
-                node.fillColor = Palette.uiJelly.withAlphaComponent(0.15)
-                node.lineWidth = 4
-            } else {
-                node.strokeColor = Palette.uiFoam
-                node.fillColor = Palette.uiFoam.withAlphaComponent(0.12)
-                node.lineWidth = 4
-            }
+            guard let ring = ringNodes[lane] else { continue }
+            ring.position = sk(LaneGeometry.catchSpot(lane))
+            ring.zPosition = 8
+            ring.alpha = shown[lane] == nil ? CGFloat(max(0, (until - now) / 0.35)) : 1
         }
+    }
+
+    private func makeRing(_ kind: ObjectKind) -> SKNode {
+        let path = ringPath(kind: kind)
+        let group = SKNode()
+        group.name = kind.rawValue
+        let outline = SKShapeNode(path: path)
+        outline.strokeColor = Palette.uiInk
+        outline.fillColor = .clear
+        outline.lineWidth = kind == .jellyfish ? 18 : 20
+        outline.lineJoin = .round
+        let front = SKShapeNode(path: path)
+        front.lineJoin = .round
+        front.lineWidth = 10
+        if kind == .jellyfish {
+            front.strokeColor = Palette.uiJelly
+            front.fillColor = Palette.uiJelly.withAlphaComponent(0.33)
+        } else {
+            front.strokeColor = Palette.uiFoam
+            front.fillColor = Palette.uiFoam.withAlphaComponent(0.28)
+        }
+        group.addChild(outline)
+        group.addChild(front)
+        return group
     }
 
     private func ringPath(kind: ObjectKind) -> CGPath {
         if kind == .jellyfish {
             let path = CGMutablePath()
             let spikes = 10
-            let outer: CGFloat = 34
-            let inner: CGFloat = 22
+            let outer: CGFloat = 68
+            let inner: CGFloat = 44
             for index in 0..<(spikes * 2) {
                 let radius = index % 2 == 0 ? outer : inner
                 let angle = CGFloat(index) * .pi / CGFloat(spikes) - .pi / 2
@@ -284,7 +313,7 @@ final class GameScene: SKScene {
             path.closeSubpath()
             return path
         }
-        return CGPath(ellipseIn: CGRect(x: -30, y: -30, width: 60, height: 60), transform: nil)
+        return CGPath(ellipseIn: CGRect(x: -58, y: -58, width: 116, height: 116), transform: nil)
     }
 
     private func syncBanner(_ session: GameSession) {
@@ -448,16 +477,29 @@ final class GameScene: SKScene {
         label.text = text
         label.fontSize = text == "CLOSE!" ? 22 : 20
         label.fontColor = color
-        label.position = sk(LaneGeometry.catchSpot(lane))
-        label.zPosition = 8
+        label.verticalAlignmentMode = .bottom
+        label.horizontalAlignmentMode = .center
+        label.position = popupPoint(lane)
+        label.zPosition = 12
         world.addChild(label)
         label.run(.sequence([
             .group([
-                .moveBy(x: 0, y: 24, duration: 0.45),
-                .fadeOut(withDuration: 0.45),
+                .moveBy(x: 0, y: 32, duration: 0.40),
+                .fadeOut(withDuration: 0.40),
             ]),
             .removeFromParent(),
         ]))
+    }
+
+    /// Above the hair, shifted toward the lane that was just resolved.
+    private func popupPoint(_ lane: Lane) -> CGPoint {
+        let anchor = sk(LaneGeometry.surferAnchor)
+        let pose = poseTarget(lane)
+        let side: CGFloat = lane.isRight ? 1 : -1
+        return CGPoint(
+            x: anchor.x + pose.x + side * 26,
+            y: anchor.y + pose.y + 100
+        )
     }
 
     private func beginShake(amplitude: CGFloat, duration: Double, now: TimeInterval, reduce: Bool) {

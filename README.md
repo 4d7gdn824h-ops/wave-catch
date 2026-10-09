@@ -45,7 +45,7 @@ A catchable that arrives while you are elsewhere still counts if you reach its s
 
 The game-over button ignores taps for 600 ms, then Play again restarts in one tap.
 
-Debug builds add a gear. The sliders start at speed 1.00× (0.50–2.00), spawn rate 1.00× (0.50–2.00), jellyfish 1.00× the phase table (0–2.00), and Big Wave 6.0 s (3–10). The same panel can turn on a larger pad, whole-screen quadrants, and diagonal swipes.
+The tuning gear stays hidden unless the app is launched with `-showTuning`, or after a 3-finger long-press. The sliders start at speed 1.00× (0.50–2.00), spawn rate 1.00× (0.50–2.00), jellyfish 1.00× the phase table (0–2.00), and Big Wave 6.0 s (3–10). The same panel can turn on a larger pad, whole-screen quadrants, and diagonal swipes. The proof run does not pass `-showTuning`.
 
 ## Feel, as tuned
 

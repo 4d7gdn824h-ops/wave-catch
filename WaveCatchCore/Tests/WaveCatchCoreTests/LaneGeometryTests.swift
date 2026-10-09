@@ -5,11 +5,12 @@ final class LaneGeometryTests: XCTestCase {
     func testUpperLanesArcDownFromTheWaveAndLowerLanesSkimTheSides() {
         for lane in Lane.allCases {
             var previous = LaneGeometry.point(lane: lane, progress: 0)
-            for step in 1...8 {
+            for step in 0...8 {
                 let sample = LaneGeometry.point(lane: lane, progress: Double(step) / 8)
-                XCTAssertLessThan(sample.y, 0.55, "\(lane) stays above the touch pad")
-                XCTAssertGreaterThan(sample.x, -0.001)
-                XCTAssertLessThan(sample.x, 1.001)
+                XCTAssertGreaterThan(sample.y, 0.12, "\(lane) stays clear of the top edge")
+                XCTAssertLessThan(sample.y, 0.50, "\(lane) stays above the touch pad")
+                XCTAssertGreaterThan(sample.x, 0.10, "\(lane) stays clear of the left edge")
+                XCTAssertLessThan(sample.x, 0.90, "\(lane) stays clear of the right edge")
                 assertAwayFromCorners(sample, lane: lane)
                 previous = sample
             }
@@ -30,14 +31,16 @@ final class LaneGeometryTests: XCTestCase {
 
         let leftEdge = LaneGeometry.point(lane: .lowerLeft, progress: 0)
         let leftSpot = LaneGeometry.catchSpot(.lowerLeft)
-        XCTAssertLessThan(leftEdge.x, 0.02)
+        XCTAssertGreaterThan(leftEdge.x, 0.12)
+        XCTAssertLessThan(leftEdge.x, 0.18)
         XCTAssertGreaterThan(leftSpot.x, 0.3)
         XCTAssertLessThan(abs(leftEdge.y - leftSpot.y), 0.05)
         XCTAssertGreaterThan(leftSpot.x, leftEdge.x)
 
         let rightEdge = LaneGeometry.point(lane: .lowerRight, progress: 0)
         let rightSpot = LaneGeometry.catchSpot(.lowerRight)
-        XCTAssertGreaterThan(rightEdge.x, 0.98)
+        XCTAssertGreaterThan(rightEdge.x, 0.82)
+        XCTAssertLessThan(rightEdge.x, 0.88)
         XCTAssertLessThan(rightSpot.x, 0.7)
         XCTAssertLessThan(abs(rightEdge.y - rightSpot.y), 0.05)
     }

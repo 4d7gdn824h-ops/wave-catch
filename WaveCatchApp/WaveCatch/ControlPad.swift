@@ -39,17 +39,17 @@ struct ControlPad: View {
 
     private func tile(_ lane: Lane) -> some View {
         ZStack {
-            Palette.sand
+            Palette.sand.opacity(0.5)
             StripeFill()
-                .opacity(0.35)
+                .opacity(0.18)
+            if pressed == lane {
+                Palette.foam.opacity(0.55)
+            }
             ArrowMark(lane: lane)
                 .stroke(Palette.ink, lineWidth: 3)
                 .frame(width: 28, height: 28)
-            if pressed == lane {
-                Palette.foam.opacity(0.45)
-            }
         }
-        .overlay(Rectangle().stroke(Palette.ink.opacity(0.35), lineWidth: 1))
+        .overlay(Rectangle().stroke(Palette.ink.opacity(0.28), lineWidth: 1))
     }
 }
 
