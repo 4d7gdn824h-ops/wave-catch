@@ -210,7 +210,16 @@ jobs:
           fi
           sleep 1
           echo "audio log lines: $(wc -l < /tmp/wavecatch-proof/audio.log 2>/dev/null || echo 0)"
-          bash "$GITHUB_WORKSPACE/Scripts/compress-proof.sh" /tmp/wavecatch-proof/raw.mp4 /tmp/wavecatch-proof/silent.mp4
+          TRIM=""
+          if [ -f /tmp/wavecatch-proof/restart.time ] && [ -f /tmp/wavecatch-proof/record-start.time ]; then
+            TRIM=$(python3 -c 'start=float(open("/tmp/wavecatch-proof/record-start.time").read()); restart=float(open("/tmp/wavecatch-proof/restart.time").read()); print(f"{max(1.0, restart-start+3.0):.3f}")')
+            echo "trim gameplay to ${TRIM}s (3s after restart)"
+          fi
+          if [ -n "$TRIM" ]; then
+            bash "$GITHUB_WORKSPACE/Scripts/compress-proof.sh" /tmp/wavecatch-proof/raw.mp4 /tmp/wavecatch-proof/silent.mp4 "$TRIM"
+          else
+            bash "$GITHUB_WORKSPACE/Scripts/compress-proof.sh" /tmp/wavecatch-proof/raw.mp4 /tmp/wavecatch-proof/silent.mp4
+          fi
           COMPRESS=$?
           if [ "$COMPRESS" -eq 0 ]; then
             if [ ! -s /tmp/wavecatch-proof/audio.log ]; then
@@ -234,11 +243,14 @@ jobs:
             if [ "$CODEC" != "aac" ]; then
               echo "gameplay.mp4 is missing an AAC audio stream"
               COMPRESS=1
+            else
+              ffmpeg -i "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4" -af volumedetect -f null - || true
             fi
           fi
           if [ "$COMPRESS" -ne 0 ]; then
             rm -f "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
           fi
+          rm -f "$GITHUB_WORKSPACE"/docs/proof/*.png
           cp -f /tmp/wavecatch-proof/*.png "$GITHUB_WORKSPACE/docs/proof/" || true
           for shot in "$GITHUB_WORKSPACE"/docs/proof/*.png; do
             W=$(sips -g pixelWidth "$shot" | awk '/pixelWidth/{print $2}')
@@ -248,17 +260,25 @@ jobs:
             elif [ -n "$W" ] && [ -n "$H" ]; then
               sips -r 180 "$shot" >/dev/null
             fi
+            W=$(sips -g pixelWidth "$shot" | awk '/pixelWidth/{print $2}')
+            H=$(sips -g pixelHeight "$shot" | awk '/pixelHeight/{print $2}')
+            echo "$(basename "$shot") ${W}x${H}"
+            if [ "$W" != "2796" ] || [ "$H" != "1290" ]; then
+              echo "$(basename "$shot") is ${W}x${H}, expected 2796x1290"
+              if [ "$STATUS" -eq 0 ]; then
+                STATUS=1
+              fi
+            fi
           done
           ls -lh "$GITHUB_WORKSPACE/docs/proof" || true
-          sips -g pixelWidth -g pixelHeight "$GITHUB_WORKSPACE"/docs/proof/*.png || true
-          GAME_W=$(sips -g pixelWidth "$GITHUB_WORKSPACE/docs/proof/05-gameover.png" | awk '/pixelWidth/{print $2}')
-          GAME_H=$(sips -g pixelHeight "$GITHUB_WORKSPACE/docs/proof/05-gameover.png" | awk '/pixelHeight/{print $2}')
-          if [ "$GAME_W" != "2796" ] || [ "$GAME_H" != "1290" ]; then
-            echo "05-gameover.png is ${GAME_W}x${GAME_H}, expected 2796x1290"
-            if [ "$STATUS" -eq 0 ]; then
-              STATUS=1
+          for name in 01-menu 02-midgame 03-catch 04-golden 05-gameover 06-restart 07-landing-ring; do
+            if [ ! -f "$GITHUB_WORKSPACE/docs/proof/${name}.png" ]; then
+              echo "missing ${name}.png"
+              if [ "$STATUS" -eq 0 ]; then
+                STATUS=1
+              fi
             fi
-          fi
+          done
           if [ "$STATUS" -ne 0 ]; then
             exit "$STATUS"
           fi

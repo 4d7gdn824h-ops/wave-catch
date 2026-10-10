@@ -35,8 +35,10 @@ struct RootView: View {
                 SceneHost(scene: model.scene)
                     .frame(width: geo.size.width, height: geo.size.height)
 
-                if model.mode != .menu {
+                if model.mode == .playing || model.mode == .gameOver {
                     hud(top: top, left: left, right: right, width: geo.size.width)
+                }
+                if model.mode == .playing {
                     CornerControls(
                         enabled: model.mode == .playing && !model.paused,
                         swipeEnabled: model.swipeEnabled,
@@ -306,8 +308,10 @@ struct RootView: View {
         let cardWidth = size.width * 0.55
         let cardHeight = size.height * 0.80
         return ZStack {
-            ConfettiBurst()
-                .allowsHitTesting(false)
+            if !model.uitest {
+                ConfettiBurst()
+                    .allowsHitTesting(false)
+            }
             VStack(spacing: 12) {
             Text("Game over")
                 .font(.custom("Bungee-Regular", size: 28))

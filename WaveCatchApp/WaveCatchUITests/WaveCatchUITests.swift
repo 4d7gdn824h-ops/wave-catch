@@ -84,34 +84,27 @@ final class WaveCatchUITests: XCTestCase {
         }
         XCTAssertGreaterThanOrEqual(number(in: app.staticTexts["maxPitch"]), 3, "the pitch ladder did not rise")
 
-        let again = app.buttons["playAgainButton"]
-        let overDeadline = started.addingTimeInterval(55)
-        while Date() < overDeadline && !again.exists {
-            Thread.sleep(forTimeInterval: 0.1)
-        }
-        XCTAssertTrue(again.waitForExistence(timeout: 2), "game over did not appear")
         XCTAssertEqual(app.staticTexts["sawBigWave"].label, "1", "Big Wave did not start")
         XCTAssertGreaterThanOrEqual(number(in: app.staticTexts["longestCombo"]), 5, "combo never reached Nice")
 
+        let again = app.buttons["playAgainButton"]
+        XCTAssertTrue(again.waitForExistence(timeout: 40), "game over did not appear")
         let newBest = app.staticTexts["newBest"]
-        XCTAssertTrue(newBest.waitForExistence(timeout: 4), "NEW BEST was not on the game over card")
-        let enabled = NSPredicate(format: "isEnabled == true")
-        expectation(for: enabled, evaluatedWith: again)
-        waitForExpectations(timeout: 2)
-        Thread.sleep(forTimeInterval: 0.15)
-        save("05-gameover")
+        XCTAssertTrue(newBest.waitForExistence(timeout: 1), "NEW BEST was not on the game over card")
         XCTAssertEqual(newBest.label, "NEW BEST")
+        save("05-gameover")
         again.tap()
 
         let backToZero = NSPredicate(format: "label == '0'")
         expectation(for: backToZero, evaluatedWith: app.staticTexts["score"])
         waitForExpectations(timeout: 6)
         XCTAssertFalse(app.buttons["playAgainButton"].exists)
-        Thread.sleep(forTimeInterval: 1.2)
+        Thread.sleep(forTimeInterval: 0.8)
         save("06-restart")
-        Thread.sleep(forTimeInterval: 2.6)
+        mark("restart")
+        Thread.sleep(forTimeInterval: 3.0)
         mark("record-stop")
-        Thread.sleep(forTimeInterval: 1.5)
+        Thread.sleep(forTimeInterval: 0.8)
     }
 
     private func number(in element: XCUIElement) -> Int {

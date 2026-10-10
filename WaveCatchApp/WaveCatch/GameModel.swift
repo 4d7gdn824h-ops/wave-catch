@@ -144,6 +144,7 @@ final class GameModel: ObservableObject {
         proofDeath = false
         proofNice = false
         mode = .playing
+        scene.isPaused = false
         haptics.prepareAll()
         tones.startLoops()
     }
@@ -338,6 +339,9 @@ final class GameModel: ObservableObject {
             self.cardVisible = true
             self.againReady = true
             self.mode = .gameOver
+            if self.uitest {
+                self.scene.isPaused = true
+            }
             self.tones.play("fanfare", pan: 0, volume: 0.8)
             self.tones.duck()
         }

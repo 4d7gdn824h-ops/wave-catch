@@ -4,19 +4,24 @@
 # sky stays at the top, then scale fills a landscape frame at least 1280x590.
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-  echo "usage: compress-proof.sh input.mp4 output.mp4" >&2
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+  echo "usage: compress-proof.sh input.mp4 output.mp4 [seconds]" >&2
   exit 2
 fi
 
 input=$1
 output=$2
+limit=${3:-}
 
 ffprobe -hide_banner -show_streams -show_format "$input" >&2 || true
 
 encode() {
   local bitrate=$1
-  ffmpeg -y -i "$input" \
+  local duration_args=()
+  if [[ -n "$limit" ]]; then
+    duration_args=(-t "$limit")
+  fi
+  ffmpeg -y -i "$input" "${duration_args[@]}" \
     -vf "transpose=2,scale=1280:-2,setsar=1" \
     -c:v libx264 -pix_fmt yuv420p -profile:v high \
     -b:v "$bitrate" -maxrate "$bitrate" -bufsize 4M \

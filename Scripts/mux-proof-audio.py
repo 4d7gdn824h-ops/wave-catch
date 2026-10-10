@@ -12,8 +12,9 @@ import wave
 import numpy as np
 
 SR = 44100
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-AUDIO = os.path.join(ROOT, "WaveCatchApp", "WaveCatch", "Audio")
+AUDIO = os.path.abspath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "WaveCatchApp", "WaveCatch", "Audio")
+)
 LINE = re.compile(r"WCAUDIO\s+([0-9.]+)\s+(\S+)\s+([-0-9.]+)\s+([-0-9.]+)")
 
 
