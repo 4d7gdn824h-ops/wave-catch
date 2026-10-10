@@ -69,8 +69,9 @@ final class WaveCatchUITests: XCTestCase {
 
         let niceDeadline = started.addingTimeInterval(25)
         var sawNiceText = false
+        let callout = app.staticTexts["callout"]
         while Date() < niceDeadline && !sawNiceText {
-            if app.staticTexts["callout"].label == "Nice!" {
+            if callout.exists && callout.label == "Nice!" {
                 sawNiceText = true
                 break
             }
