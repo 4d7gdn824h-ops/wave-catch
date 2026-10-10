@@ -239,7 +239,7 @@ final class GameModel: ObservableObject {
         if golden { sawGolden = true }
         let lit = session.liveObjects.contains { $0.telegraph }
         if ringLit != lit { ringLit = lit }
-        if !didRibbon && score > bestAtStart {
+        if !didRibbon && bestAtStart >= 10 && score > bestAtStart {
             didRibbon = true
             newBestRibbon = true
             tones.play("new-best", pan: 0, volume: 0.8)

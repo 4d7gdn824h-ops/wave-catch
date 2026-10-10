@@ -17,7 +17,12 @@ final class GameScene: SKScene {
     private var ringNodes: [Lane: SKNode] = [:]
     private var ringKind: [Lane: ObjectKind] = [:]
     private var ringUntil: [Lane: TimeInterval] = [:]
-    private let itemScale: CGFloat = 1.3
+    private var chuteGroups: [SKNode] = []
+    private var glints: [SKNode] = []
+    private var foamLine: SKShapeNode?
+    /// Items are 30% larger than the previous pass. The surfer is 40% larger.
+    private let itemScale: CGFloat = 1.3 * 1.3
+    private let surferScale: CGFloat = 1.4
     private var poseFrom = CGPoint.zero
     private var poseTo = CGPoint.zero
     private var poseStart: TimeInterval = 0
@@ -112,6 +117,7 @@ final class GameScene: SKScene {
             rebuildBackdrop()
         }
         world.position = shakeOffset(now: now)
+        animateDressing(now: now)
         guard let session = model?.session, model?.mode != .menu else {
             placeSurfer(at: poseTo, now: now)
             return
@@ -129,6 +135,9 @@ final class GameScene: SKScene {
     }
 
     private func rebuildBackdrop() {
+        chuteGroups.removeAll()
+        glints.removeAll()
+        foamLine = nil
         for child in world.children where child !== surfer {
             child.removeFromParent()
         }
@@ -146,6 +155,8 @@ final class GameScene: SKScene {
         addSun()
         addClouds()
         addSea()
+        addShore()
+        addGlints()
         addChutes()
         addHeat()
     }
@@ -167,7 +178,7 @@ final class GameScene: SKScene {
     }
 
     private func addSun() {
-        let center = sk(LaneGeometry.Point(x: 0.72, y: 0.22))
+        let center = sk(LaneGeometry.Point(x: 0.50, y: 0.06))
         let glow = SKShapeNode(circleOfRadius: 42 * 1.6)
         glow.fillColor = Palette.uiSunDisc.withAlphaComponent(0.35)
         glow.strokeColor = .clear
@@ -225,76 +236,267 @@ final class GameScene: SKScene {
 
     private func addChutes() {
         for lane in Lane.allCases {
-            let ribbon = chuteRibbon(lane)
-            ribbon.zPosition = 3
-            world.addChild(ribbon)
+            let group = SKNode()
+            group.zPosition = 3
+            let samples = (0...28).map { index -> CGPoint in
+                let point = LaneGeometry.point(lane: lane, progress: Double(index) / 28)
+                return CGPoint(x: point.x * size.width, y: point.y * size.height)
+            }
+            let image = chuteImage(samples: samples, size: size)
+            let sprite = SKSpriteNode(texture: SKTexture(image: image), size: size)
+            sprite.position = CGPoint(x: size.width / 2, y: size.height / 2)
+            group.addChild(sprite)
             for step in 1...LaneGeometry.stepCount {
                 let ring = SKShapeNode(circleOfRadius: 14)
                 ring.strokeColor = Palette.uiCream.withAlphaComponent(0.16)
                 ring.fillColor = .clear
                 ring.lineWidth = 1.5
                 ring.position = sk(LaneGeometry.point(lane: lane, step: step))
-                ring.zPosition = 3.2
-                world.addChild(ring)
+                ring.zPosition = 1
+                group.addChild(ring)
+            }
+            world.addChild(group)
+            chuteGroups.append(group)
+        }
+    }
+
+    /// Crescent tube in UIKit coordinates: deep teal at the lip, light teal at the drop.
+    private func chuteImage(samples: [CGPoint], size: CGSize) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { context in
+            let cg = context.cgContext
+            cg.saveGState()
+            cg.addPath(ribbonPath(samples, width: 62))
+            cg.clip()
+            drawTubeGradient(in: cg, samples: samples, from: Palette.uiWaveBack, to: Palette.uiWaveFront)
+            cg.setFillColor(Palette.uiPlum.withAlphaComponent(0.16).cgColor)
+            for (index, point) in samples.enumerated() where index % 2 == 0 {
+                cg.fillEllipse(in: CGRect(x: point.x - 1.6, y: point.y - 1.6, width: 3.2, height: 3.2))
+            }
+            cg.restoreGState()
+            cg.saveGState()
+            cg.addPath(ribbonPath(samples, width: 28))
+            cg.clip()
+            drawTubeGradient(in: cg, samples: samples, from: Palette.uiWaveMid, to: Palette.uiWaveFront)
+            cg.restoreGState()
+            cg.setStrokeColor(Palette.uiCream.cgColor)
+            cg.setLineWidth(8)
+            cg.setLineCap(.round)
+            cg.setLineJoin(.round)
+            cg.addPath(lipPath(samples))
+            cg.strokePath()
+            guard let end = samples.last else { return }
+            for index in 0..<7 {
+                let spread = CGFloat(index) - 3
+                let radius: CGFloat = index % 2 == 0 ? 3.4 : 2.5
+                let rect = CGRect(
+                    x: end.x + spread * 8 - radius,
+                    y: end.y + 12 + CGFloat(index % 3) * 5 - radius,
+                    width: radius * 2,
+                    height: radius * 2
+                )
+                let color = index % 2 == 0 ? Palette.uiCream : Palette.uiWaveFront
+                cg.setFillColor(color.cgColor)
+                cg.fillEllipse(in: rect)
             }
         }
     }
 
-    private func chuteRibbon(_ lane: Lane) -> SKNode {
-        let group = SKNode()
-        var centers: [CGPoint] = []
-        for step in 1...LaneGeometry.stepCount {
-            centers.append(sk(LaneGeometry.point(lane: lane, step: step)))
-        }
-        let water = SKShapeNode(path: ribbonPath(centers, width: 48))
-        water.fillColor = Palette.uiWaveMid.withAlphaComponent(0.78)
-        water.strokeColor = .clear
-        group.addChild(water)
-        let lip = SKShapeNode(path: ribbonPath(centers, width: 22))
-        lip.fillColor = Palette.uiWaveFront.withAlphaComponent(0.55)
-        lip.strokeColor = .clear
-        group.addChild(lip)
-        let foam = SKShapeNode(path: ribbonPath(centers, width: 48))
-        foam.fillColor = .clear
-        foam.strokeColor = Palette.uiCream.withAlphaComponent(0.92)
-        foam.lineWidth = 5
-        group.addChild(foam)
-        group.addChild(crestLine(centers))
-        return group
+    private func drawTubeGradient(in cg: CGContext, samples: [CGPoint], from: UIColor, to: UIColor) {
+        let colors = [from.cgColor, to.cgColor] as CFArray
+        guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) else { return }
+        let start = samples.first ?? .zero
+        let end = samples.last ?? start
+        cg.drawLinearGradient(gradient, start: start, end: end, options: [])
     }
 
-    /// A curling foam lip along one side of the chute, so the ramp reads as a breaking wave.
-    private func crestLine(_ centers: [CGPoint]) -> SKShapeNode {
+    /// Cream lip along the skyward edge, curled with a quad so it reads as foam folding over.
+    private func lipPath(_ centers: [CGPoint]) -> CGPath {
         let path = CGMutablePath()
-        guard centers.count > 1 else {
-            return SKShapeNode(path: path)
-        }
-        for index in 0..<(centers.count - 1) {
-            let start = centers[index]
-            let end = centers[index + 1]
-            let dx = end.x - start.x
-            let dy = end.y - start.y
+        var points: [CGPoint] = []
+        for index in centers.indices {
+            let previous = centers[max(0, index - 1)]
+            let next = centers[min(centers.count - 1, index + 1)]
+            let dx = next.x - previous.x
+            let dy = next.y - previous.y
             let length = max(1, hypot(dx, dy))
-            let nx = -dy / length
-            let ny = dx / length
-            let lift: CGFloat = 20
-            let curl: CGFloat = 14
-            path.move(to: CGPoint(x: start.x + nx * lift, y: start.y + ny * lift))
-            let control = CGPoint(
-                x: (start.x + end.x) / 2 + nx * (lift + curl),
-                y: (start.y + end.y) / 2 + ny * (lift + curl)
-            )
-            path.addQuadCurve(
-                to: CGPoint(x: end.x + nx * lift, y: end.y + ny * lift),
-                control: control
-            )
+            var nx = -dy / length
+            var ny = dx / length
+            if ny > 0 {
+                nx = -nx
+                ny = -ny
+            }
+            let curl: CGFloat = index % 5 == 2 ? 16 : 6
+            points.append(CGPoint(x: centers[index].x + nx * (30 + curl), y: centers[index].y + ny * 26))
         }
-        let crest = SKShapeNode(path: path)
-        crest.strokeColor = Palette.uiCream
-        crest.fillColor = .clear
-        crest.lineWidth = 4
-        crest.lineCap = .round
-        return crest
+        guard let first = points.first else { return path }
+        path.move(to: first)
+        for index in 1..<points.count {
+            let previous = points[index - 1]
+            let point = points[index]
+            let control = CGPoint(
+                x: (previous.x + point.x) / 2,
+                y: (previous.y + point.y) / 2 - 10
+            )
+            path.addQuadCurve(to: point, control: control)
+        }
+        return path
+    }
+
+    private func addShore() {
+        let shoreHeight = size.height * 0.18
+        let image = shoreImage(width: size.width, height: shoreHeight)
+        let sprite = SKSpriteNode(texture: SKTexture(image: image), size: CGSize(width: size.width, height: shoreHeight))
+        sprite.position = CGPoint(x: size.width / 2, y: shoreHeight / 2)
+        sprite.zPosition = 2.75
+        world.addChild(sprite)
+        let line = SKShapeNode()
+        line.strokeColor = Palette.uiCream
+        line.lineWidth = 4
+        line.lineCap = .round
+        line.zPosition = 2.9
+        world.addChild(line)
+        foamLine = line
+        addBeachProps(band: shoreHeight)
+    }
+
+    private func shoreImage(width: CGFloat, height: CGFloat) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: format)
+        return renderer.image { context in
+            let cg = context.cgContext
+            cg.setFillColor(UIColor(hex: 0xF6D7A7).cgColor)
+            cg.fill(CGRect(x: 0, y: 0, width: width, height: height))
+            cg.setFillColor(UIColor(hex: 0xE7C48A).cgColor)
+            cg.fill(CGRect(x: 0, y: 0, width: width, height: 8))
+            cg.setFillColor(Palette.uiPlum.withAlphaComponent(0.16).cgColor)
+            var y: CGFloat = 18
+            var row = 0
+            while y < height - 8 {
+                var x: CGFloat = row % 2 == 0 ? 10 : 18
+                while x < width - 8 {
+                    cg.fillEllipse(in: CGRect(x: x, y: y, width: 3, height: 3))
+                    x += 16
+                }
+                y += 14
+                row += 1
+            }
+        }
+    }
+
+    private func addBeachProps(band: CGFloat) {
+        addStarfish(at: CGPoint(x: size.width * 0.34, y: band * 0.42))
+        addTowel(at: CGPoint(x: size.width * 0.52, y: band * 0.36))
+        addPalmShadow(at: CGPoint(x: size.width * 0.68, y: band * 0.48))
+    }
+
+    private func addStarfish(at point: CGPoint) {
+        let path = CGMutablePath()
+        let spikes = 5
+        for index in 0..<(spikes * 2) {
+            let radius: CGFloat = index % 2 == 0 ? 16 : 6
+            let angle = CGFloat(index) * .pi / CGFloat(spikes) - .pi / 2
+            let vertex = CGPoint(x: cos(angle) * radius, y: sin(angle) * radius)
+            if index == 0 { path.move(to: vertex) } else { path.addLine(to: vertex) }
+        }
+        path.closeSubpath()
+        let star = SKShapeNode(path: path)
+        star.fillColor = Palette.uiTangerine
+        star.strokeColor = Palette.uiPlum
+        star.lineWidth = 2
+        star.position = point
+        star.zPosition = 2.95
+        world.addChild(star)
+    }
+
+    private func addTowel(at point: CGPoint) {
+        let towel = SKShapeNode(rectOf: CGSize(width: 54, height: 28), cornerRadius: 4)
+        towel.fillColor = Palette.uiHotPink
+        towel.strokeColor = Palette.uiPlum
+        towel.lineWidth = 2
+        towel.position = point
+        towel.zRotation = -0.18
+        towel.zPosition = 2.95
+        world.addChild(towel)
+        for index in 0..<3 {
+            let stripe = SKShapeNode(rectOf: CGSize(width: 8, height: 24), cornerRadius: 2)
+            stripe.fillColor = index == 1 ? Palette.uiSun : Palette.uiCream
+            stripe.strokeColor = .clear
+            stripe.position = CGPoint(x: CGFloat(index - 1) * 14, y: 0)
+            stripe.zPosition = 0.1
+            towel.addChild(stripe)
+        }
+    }
+
+    private func addPalmShadow(at point: CGPoint) {
+        let shade = SKNode()
+        shade.position = point
+        shade.zPosition = 2.92
+        shade.alpha = 0.38
+        let trunk = SKShapeNode(ellipseOf: CGSize(width: 10, height: 22))
+        trunk.fillColor = Palette.uiPlum
+        trunk.strokeColor = .clear
+        trunk.position = CGPoint(x: 8, y: -6)
+        trunk.zRotation = 0.5
+        shade.addChild(trunk)
+        for index in 0..<5 {
+            let frond = SKShapeNode(ellipseOf: CGSize(width: 28, height: 8))
+            frond.fillColor = Palette.uiPlum
+            frond.strokeColor = .clear
+            frond.zRotation = CGFloat(index) * 0.55 - 1.2
+            frond.position = CGPoint(x: CGFloat(index - 2) * 6, y: 4)
+            shade.addChild(frond)
+        }
+        world.addChild(shade)
+    }
+
+    private func addGlints() {
+        let spots: [(CGFloat, CGFloat, CGFloat)] = [
+            (0.34, 0.68, 0.4),
+            (0.48, 0.74, -0.25),
+            (0.63, 0.66, 0.55),
+            (0.55, 0.80, -0.15),
+        ]
+        for (x, y, rotation) in spots {
+            let streak = SKShapeNode(rectOf: CGSize(width: 46, height: 3), cornerRadius: 1.5)
+            streak.fillColor = UIColor.white.withAlphaComponent(0.75)
+            streak.strokeColor = .clear
+            streak.position = sk(LaneGeometry.Point(x: x, y: y))
+            streak.zRotation = rotation
+            streak.zPosition = 2.65
+            world.addChild(streak)
+            glints.append(streak)
+        }
+    }
+
+    private func animateDressing(now: TimeInterval) {
+        let bob = sin(CGFloat(now) * .pi) * 6
+        for group in chuteGroups {
+            group.position = CGPoint(x: 0, y: bob)
+        }
+        if let foamLine {
+            let base = size.height * 0.18
+            let path = CGMutablePath()
+            let steps = 28
+            for index in 0...steps {
+                let x = -8 + (size.width + 16) * CGFloat(index) / CGFloat(steps)
+                let wave = sin(CGFloat(now) * 2.4 + x * 0.018) * 5
+                let y = base + wave
+                if index == 0 {
+                    path.move(to: CGPoint(x: x, y: y))
+                } else {
+                    path.addLine(to: CGPoint(x: x, y: y))
+                }
+            }
+            foamLine.path = path
+        }
+        for (index, glint) in glints.enumerated() {
+            let phase = CGFloat(now) * 1.7 + CGFloat(index) * 0.9
+            glint.alpha = 0.2 + 0.65 * (0.5 + 0.5 * sin(phase))
+        }
     }
 
     private func ribbonPath(_ centers: [CGPoint], width: CGFloat) -> CGPath {
@@ -499,7 +701,7 @@ final class GameScene: SKScene {
         root.addChild(body)
         root.addChild(spec)
         if kind == .goldenShell {
-            let glow = SKShapeNode(circleOfRadius: 36)
+            let glow = SKShapeNode(circleOfRadius: 25)
             glow.fillColor = Palette.uiGold.withAlphaComponent(0.45)
             glow.strokeColor = Palette.uiGold
             glow.lineWidth = 2
@@ -659,6 +861,7 @@ final class GameScene: SKScene {
         arm.position = CGPoint(x: 18, y: 28)
         arm.name = "arm"
         surfer.addChild(arm)
+        surfer.setScale(surferScale)
         surfer.zPosition = 6
     }
 
@@ -686,10 +889,10 @@ final class GameScene: SKScene {
 
     private func poseTarget(_ lane: Lane) -> CGPoint {
         switch lane {
-        case .upperLeft: return CGPoint(x: -58, y: 36)
-        case .upperRight: return CGPoint(x: 58, y: 36)
-        case .lowerLeft: return CGPoint(x: -64, y: -26)
-        case .lowerRight: return CGPoint(x: 64, y: -26)
+        case .upperLeft: return CGPoint(x: -74, y: 50)
+        case .upperRight: return CGPoint(x: 74, y: 50)
+        case .lowerLeft: return CGPoint(x: -86, y: -48)
+        case .lowerRight: return CGPoint(x: 86, y: -48)
         }
     }
 
@@ -714,8 +917,8 @@ final class GameScene: SKScene {
     private func playCatchSquash() {
         guard !UIAccessibility.isReduceMotionEnabled else { return }
         surfer.removeAction(forKey: "squash")
-        let down = SKAction.scaleX(to: 1.15, y: 0.85, duration: 0.06)
-        let back = SKAction.scaleX(to: 1, y: 1, duration: 0.12)
+        let down = SKAction.scaleX(to: surferScale * 1.15, y: surferScale * 0.85, duration: 0.06)
+        let back = SKAction.scale(to: surferScale, duration: 0.12)
         back.timingMode = .easeOut
         surfer.run(.sequence([down, back]), withKey: "squash")
     }

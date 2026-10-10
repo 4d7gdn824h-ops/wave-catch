@@ -15,9 +15,9 @@ final class TonePlayer {
     private var duckLeft = 0.0
     private let logProof: Bool
     private let audioLog = Logger(subsystem: "com.example.wavecatch", category: "audio")
-    /// Playback gain. Keeps the loop under the wood-block tick and the catch chime.
-    private let musicLevel: Float = 0.18
-    private let waveLevel: Float = 0.14
+    /// Playback gain. Music stays on by default at about 60%, still under the catch chime.
+    private let musicLevel: Float = 0.60
+    private let waveLevel: Float = 0.42
 
     init() {
         logProof = ProcessInfo.processInfo.arguments.contains("-uitest")

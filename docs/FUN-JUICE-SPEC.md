@@ -18,17 +18,17 @@ P0 catch feel · P0 sky/water/surfer art pass · P0 music + core SFX · P1 combo
 - Big Wave rush (P1): after phases 4, 7, 10, then every 3. 1.5 s warning (horizon wave rises, "BIG WAVE!" callout, whoosh), 6 s rush: step clock −20%, no jellyfish, every catch +2, music layer swells in (drums + lead), sky shifts hotter. Ends with crash-splash and 3 s breather.
 - Golden shell (P1): 3% of catchable spawns from phase 3, max one on screen, never during a mercy window. Worth ×5 base points, gold glint every step, unique 3-note chime + .medium haptic.
 - Near-miss slow-mo (P2): if a catch lands in the last 80 ms window, 0.5× time for 150 ms + "CLOSE!" small callout. Max once per 5 s.
-- New best (P0): when score passes best mid-run, small "NEW BEST!" ribbon + 2-note sting, once per run. Game over card: confetti (30 pieces, 1.2 s) + fanfare.
+- New best (P0): mid-run "NEW BEST!" ribbon only when the previous best is at least 10 and this run passes it, once per run. A first run or a best under 10 skips the ribbon. Game over card still shows NEW BEST whenever this run sets a new best, plus confetti (30 pieces, 1.2 s) and fanfare.
 - Fast restart (P0): game over card appears after 600 ms; Play again active at 600 ms; tap → back in play in < 1 s (no menu). Card ≤ 55% width, centred.
 
 ## 3. Graphics art pass (P0 unless noted) — "Sunset Surf-Zine", original
 - Sky: vertical gradient #2B1052 → #8C2F7A → #FF7A59 → #FFC46B (horizon). Sun: #FFD27A disc with soft radial glow (alpha 0.35, 1.6× radius) and 3 horizontal halftone cut-bands. Sky tints hotter each phase.
 - Clouds (P2): 2 parallax layers of flat cream #FFE9C9 clouds, drift 6 and 12 pt/s.
 - Water: 3 layered wave bands (#1B8FA6, #22B3C4, #47D6D9) with cream foam crests, sine bob (amp 3/5/8 pt, period 3.2/2.6/2.0 s).
-- Ramps: 4 wave-chute ramps as curling water tubes with foam edges and a subtle halftone dot texture; each of the 5 step positions has a faint foam ring (NOT a grey ghost silhouette).
-- Surfer: original — sun-bleached hair, teal rash guard, pink board with lightning stripe. 4 corner poses + catch squash + miss wobble (board flips, 300 ms). Plum #3B1F4A 3 pt outline, no black.
-- Items: shell (pink #FF9BB3, ridged), board (teal/pink striped mini board), life ring (red/cream), golden shell, jellyfish (purple #9B5CF6, spiky, the only spiky silhouette). Each: plum outline, 1 highlight spec, soft drop shadow (alpha 0.25, offset 0,4). Tumble/flip each step + 40 ms squash.
-- UI: Bungee for numbers/callouts, Rubik for body (OFL). Buttons: rounded 20 pt, sand #F6D7A7 at 35% (corner controls) or solid pink #FF5D8F (Play again), plum border, 4 pt press-down.
+- Ramps: 4 crescent wave tubes, gradient #1B8FA6 → #47D6D9, cream #FFF3D6 foam lip curling the top edge, 7 droplets at the bottom end, 2 s bob, faint halftone. Five foam step rings stay. Bottom 18% is sand #F6D7A7 (halftone, foam line, starfish, striped towel, palm shadow). Sun-glint streaks on the water. Play fills the water above that shore.
+- Surfer: original — sun-bleached hair, teal rash guard, pink board with lightning stripe, drawn about 40% larger. 4 corner poses + catch squash + miss wobble (board flips, 300 ms). Plum #3B1F4A 3 pt outline, no black.
+- Items: about 30% larger. Shell (pink #FF9BB3, ridged), board (teal/pink striped mini board), life ring (red/cream), golden shell (glow about 30% tighter), jellyfish (purple #9B5CF6, spiky, the only spiky silhouette). Each: plum outline, 1 highlight spec, soft drop shadow (alpha 0.25, offset 0,4). Tumble/flip each step + 40 ms squash.
+- UI: Bungee for numbers/callouts, Rubik for body (OFL). Buttons: rounded 20 pt, sand #F6D7A7 at 45% with a cream arrow and soft shadow (corner controls), solid pink #FF5D8F when pressed or for Play again, 3 pt plum border, 4 pt press-down.
 - Vector shapes in SpriteKit or self-drawn atlases. No LCD look, no chicken/egg/wolf.
 
 ## 4. Sound (P0) — self-made or CC0, docs/AUDIO-LICENSES.md

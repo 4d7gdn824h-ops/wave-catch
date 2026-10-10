@@ -2,7 +2,7 @@ import XCTest
 import WaveCatchCore
 
 final class LaneGeometryTests: XCTestCase {
-    func testChutesAreStraightSlopesWithFiveSteps() {
+    func testChutesAreCrescentSlopesWithFiveSteps() {
         for lane in Lane.allCases {
             let ends = LaneGeometry.endpoints(lane)
             XCTAssertLessThan(ends.start.y, ends.end.y, "\(lane) slopes down toward the surfer")
@@ -11,13 +11,16 @@ final class LaneGeometryTests: XCTestCase {
             } else {
                 XCTAssertLessThan(ends.start.x, ends.end.x, "\(lane) starts on the left")
             }
+            var previousY = -1.0
             for step in 1...LaneGeometry.stepCount {
                 let sample = LaneGeometry.point(lane: lane, step: step)
                 let progress = LaneGeometry.point(lane: lane, progress: Double(step - 1) / 4)
                 XCTAssertEqual(sample.x, progress.x, accuracy: 0.0001)
                 XCTAssertEqual(sample.y, progress.y, accuracy: 0.0001)
-                XCTAssertGreaterThan(sample.y, 0.16, "\(lane) stays clear of the top edge")
-                XCTAssertLessThan(sample.y, 0.62, "\(lane) stays above the lower buttons")
+                XCTAssertGreaterThan(sample.y, previousY, "\(lane) keeps traveling down the crescent")
+                previousY = sample.y
+                XCTAssertGreaterThan(sample.y, 0.08, "\(lane) stays clear of the top edge")
+                XCTAssertLessThan(sample.y, 0.82, "\(lane) stays above the sand")
                 XCTAssertGreaterThan(sample.x, 0.18, "\(lane) stays in from the left edge")
                 XCTAssertLessThan(sample.x, 0.82, "\(lane) stays in from the right edge")
                 assertAwayFromCorners(sample, lane: lane)
@@ -25,19 +28,21 @@ final class LaneGeometryTests: XCTestCase {
             let mid = LaneGeometry.point(lane: lane, progress: 0.5)
             let chordX = (ends.start.x + ends.end.x) / 2
             let chordY = (ends.start.y + ends.end.y) / 2
-            XCTAssertEqual(mid.x, chordX, accuracy: 0.0001, "\(lane) is a straight chute")
-            XCTAssertEqual(mid.y, chordY, accuracy: 0.0001, "\(lane) is a straight chute")
+            let bow = hypot(mid.x - chordX, mid.y - chordY)
+            XCTAssertGreaterThan(bow, 0.05, "\(lane) is a crescent, not a flat slab")
         }
 
         let leftSpot = LaneGeometry.catchSpot(.lowerLeft)
-        XCTAssertLessThan(leftSpot.y, 0.52)
+        XCTAssertGreaterThan(leftSpot.y, 0.70)
+        XCTAssertLessThan(leftSpot.y, 0.82)
         let rightSpot = LaneGeometry.catchSpot(.lowerRight)
-        XCTAssertLessThan(rightSpot.y, 0.52)
+        XCTAssertGreaterThan(rightSpot.y, 0.70)
+        XCTAssertLessThan(rightSpot.y, 0.82)
         assertLowerLanesClearTheCornerButtons()
 
         let anchor = LaneGeometry.surferAnchor
         XCTAssertEqual(anchor.x, 0.50, accuracy: 0.001)
-        XCTAssertEqual(anchor.y, 0.50, accuracy: 0.001)
+        XCTAssertEqual(anchor.y, 0.58, accuracy: 0.001)
         assertCloserToCorner(.upperLeft, corner: (0, 0), than: anchor)
         assertCloserToCorner(.upperRight, corner: (1, 0), than: anchor)
         assertCloserToCorner(.lowerLeft, corner: (0, 1), than: anchor)
@@ -57,8 +62,9 @@ final class LaneGeometryTests: XCTestCase {
         let side: CGFloat = 104
         let margin: CGFloat = 8
         let gap: CGFloat = 12
-        let halfW: CGFloat = 44
-        let halfH: CGFloat = 50
+        // Item art is 30% larger than the original clearance box.
+        let halfW: CGFloat = 44 * 1.3
+        let halfH: CGFloat = 50 * 1.3
         let ringRadius: CGFloat = 70
         for (width, height) in screens {
             for (insetLeft, insetRight, insetBottom) in layouts {
