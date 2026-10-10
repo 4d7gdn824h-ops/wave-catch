@@ -35,8 +35,10 @@ struct RootView: View {
                 SceneHost(scene: model.scene)
                     .frame(width: geo.size.width, height: geo.size.height)
 
-                if model.mode != .menu {
+                if model.mode == .playing || model.mode == .gameOver {
                     hud(top: top, left: left, right: right, width: geo.size.width)
+                }
+                if model.mode == .playing {
                     CornerControls(
                         enabled: model.mode == .playing && !model.paused,
                         swipeEnabled: model.swipeEnabled,
@@ -54,6 +56,32 @@ struct RootView: View {
                 if model.mode == .gameOver {
                     gameOver(size: geo.size)
                 }
+                if !model.callout.isEmpty {
+                    VStack {
+                        CalloutBanner(text: model.callout, color: calloutColor)
+                            .id(model.callout)
+                            .padding(.top, top + 36)
+                        Spacer()
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .allowsHitTesting(false)
+                }
+                if model.newBestRibbon {
+                    VStack {
+                        Text("NEW BEST!")
+                            .font(.custom("Bungee-Regular", size: 22))
+                            .foregroundColor(Palette.indigo)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Palette.gold)
+                            .clipShape(Capsule())
+                            .padding(.top, top + 108)
+                        Spacer()
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("newBestRibbon")
+                }
                 if model.paused && model.mode == .playing {
                     pauseCard
                 }
@@ -65,6 +93,9 @@ struct RootView: View {
         .background(TuningGesture { model.showTuning = true })
         .sheet(isPresented: $model.showDebug) {
             DebugPanel(model: model)
+        }
+        .sheet(isPresented: $model.showLicenses) {
+            LicensesView()
         }
     }
 
@@ -83,15 +114,15 @@ struct RootView: View {
                 Spacer()
                 VStack(spacing: 2) {
                     Text("\(model.score)")
-                        .font(.system(size: 40, weight: .black, design: .rounded))
+                        .font(.custom("Bungee-Regular", size: 40))
                         .foregroundColor(Palette.foam)
                         .accessibilityIdentifier("score")
                     Text(multiplierText)
-                        .font(.system(size: 16, weight: .heavy, design: .rounded))
-                        .foregroundColor(Palette.sun)
+                        .font(.custom("Bungee-Regular", size: 16))
+                        .foregroundColor(Palette.indigo)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 2)
-                        .background(Palette.indigo.opacity(0.88))
+                        .background(tierColor)
                         .clipShape(Capsule())
                 }
                 Spacer()
@@ -139,6 +170,30 @@ struct RootView: View {
                     .frame(width: 24, height: 24)
                     .accessibilityIdentifier("ringLit")
                     .accessibilityLabel(model.ringLit ? "1" : "0")
+                Text(model.sawNice ? "1" : "0")
+                    .font(.system(size: 4))
+                    .foregroundColor(Palette.indigo)
+                    .frame(width: 24, height: 24)
+                    .accessibilityIdentifier("sawNice")
+                    .accessibilityLabel(model.sawNice ? "1" : "0")
+                Text(model.sawGolden ? "1" : "0")
+                    .font(.system(size: 4))
+                    .foregroundColor(Palette.indigo)
+                    .frame(width: 24, height: 24)
+                    .accessibilityIdentifier("sawGolden")
+                    .accessibilityLabel(model.sawGolden ? "1" : "0")
+                Text(model.sawBigWave ? "1" : "0")
+                    .font(.system(size: 4))
+                    .foregroundColor(Palette.indigo)
+                    .frame(width: 24, height: 24)
+                    .accessibilityIdentifier("sawBigWave")
+                    .accessibilityLabel(model.sawBigWave ? "1" : "0")
+                Text("\(model.maxPitch)")
+                    .font(.system(size: 4))
+                    .foregroundColor(Palette.indigo)
+                    .frame(width: 24, height: 24)
+                    .accessibilityIdentifier("maxPitch")
+                    .accessibilityLabel("\(model.maxPitch)")
                 Spacer()
             }
         }
@@ -151,21 +206,42 @@ struct RootView: View {
     private var lifeRow: some View {
         HStack(spacing: 6) {
             ForEach(0..<3, id: \.self) { index in
-                Capsule()
-                    .fill(index < model.lives ? Palette.board : Palette.ink.opacity(0.35))
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(index < model.lives ? Palette.hotPink : Palette.buttonPlum.opacity(0.35))
                     .frame(width: 22, height: 8)
                     .overlay(
-                        Capsule().stroke(Palette.ink, lineWidth: 1.5)
+                        RoundedRectangle(cornerRadius: 3).stroke(Palette.buttonPlum, lineWidth: 1.5)
                     )
                     .overlay {
                         if index >= model.lives {
-                            Rectangle()
-                                .fill(Palette.ink.opacity(0.7))
-                                .frame(width: 1.5, height: 12)
-                                .rotationEffect(.degrees(35))
+                            Path { path in
+                                path.move(to: CGPoint(x: 4, y: 2))
+                                path.addLine(to: CGPoint(x: 11, y: 6))
+                                path.addLine(to: CGPoint(x: 16, y: 3))
+                            }
+                            .stroke(Palette.buttonPlum, lineWidth: 1.5)
                         }
                     }
             }
+        }
+    }
+
+    private var tierColor: Color {
+        switch ScoreMath.tierIndex(for: model.combo) {
+        case 1: return Palette.cream
+        case 2: return Palette.splashTeal
+        case 3: return Palette.hotPink
+        case 4: return Palette.gold
+        default: return Palette.cream
+        }
+    }
+
+    private var calloutColor: Color {
+        switch model.calloutTier {
+        case 1: return Palette.cream
+        case 2: return Palette.splashTeal
+        case 3: return Palette.hotPink
+        default: return Palette.gold
         }
     }
 
@@ -178,26 +254,46 @@ struct RootView: View {
     }
 
     private func menu(size: CGSize) -> some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 10) {
             Text("WAVE CATCH")
-                .font(.system(size: 44, weight: .black, design: .rounded))
+                .font(.custom("Bungee-Regular", size: 40))
                 .foregroundColor(Palette.foam)
                 .shadow(color: Palette.hotPink, radius: 0, x: 3, y: 3)
             Text("Four spots. One board. Keep the combo.")
-                .font(.system(size: 16, weight: .medium, design: .rounded))
+                .font(.custom("Rubik-Regular", size: 16))
                 .foregroundColor(Palette.foam)
                 .multilineTextAlignment(.center)
             Button(action: { model.startGame() }) {
                 Text("Play")
-                    .font(.system(size: 28, weight: .heavy, design: .rounded))
+                    .font(.custom("Bungee-Regular", size: 28))
+                    .foregroundColor(Palette.foam)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Palette.hotPink)
+            .buttonStyle(SurfButtonStyle())
             .accessibilityIdentifier("playButton")
+            Toggle(isOn: Binding(get: { model.musicOn }, set: { model.setMusicOn($0) })) {
+                Text("Music")
+                    .font(.custom("Rubik-Regular", size: 16))
+                    .foregroundColor(Palette.foam)
+            }
+            .tint(Palette.hotPink)
+            .accessibilityIdentifier("musicToggle")
+            Toggle(isOn: Binding(get: { model.effectsOn }, set: { model.setEffectsOn($0) })) {
+                Text("Sound effects")
+                    .font(.custom("Rubik-Regular", size: 16))
+                    .foregroundColor(Palette.foam)
+            }
+            .tint(Palette.hotPink)
+            .accessibilityIdentifier("effectsToggle")
+            Button(action: { model.showLicenses = true }) {
+                Text("Licenses")
+                    .font(.custom("Rubik-Regular", size: 16))
+                    .foregroundColor(Palette.sun)
+            }
+            .accessibilityIdentifier("licensesButton")
             Text("Best \(model.bestScore)")
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .font(.custom("Rubik-Regular", size: 16))
                 .foregroundColor(Palette.sun)
         }
         .padding(28)
@@ -211,39 +307,45 @@ struct RootView: View {
     private func gameOver(size: CGSize) -> some View {
         let cardWidth = size.width * 0.55
         let cardHeight = size.height * 0.80
-        return VStack(spacing: 12) {
+        return ZStack {
+            if !model.uitest {
+                ConfettiBurst()
+                    .allowsHitTesting(false)
+            }
+            VStack(spacing: 12) {
             Text("Game over")
-                .font(.system(size: 34, weight: .black, design: .rounded))
+                .font(.custom("Bungee-Regular", size: 28))
                 .foregroundColor(Palette.foam)
             Text("\(model.score)")
-                .font(.system(size: 64, weight: .black, design: .rounded))
+                .font(.custom("Bungee-Regular", size: 56))
                 .foregroundColor(Palette.sun)
             if model.isNewBest {
                 Text("NEW BEST")
-                    .font(.system(size: 18, weight: .heavy, design: .rounded))
+                    .font(.custom("Bungee-Regular", size: 18))
                     .foregroundColor(Palette.lime)
                     .accessibilityIdentifier("newBest")
                     .accessibilityLabel("NEW BEST")
             }
             Text("Best \(model.bestScore)")
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .font(.custom("Rubik-Regular", size: 18))
                 .foregroundColor(Palette.foam)
                 .accessibilityIdentifier("bestScore")
             Text("Longest combo \(model.runBestCombo)")
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .font(.custom("Rubik-Regular", size: 18))
                 .foregroundColor(Palette.foam)
                 .accessibilityIdentifier("longestCombo")
             Button(action: { model.startGame() }) {
                 Text("Play again")
-                    .font(.system(size: 26, weight: .heavy, design: .rounded))
+                    .font(.custom("Bungee-Regular", size: 22))
+                    .foregroundColor(Palette.foam)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(model.againReady ? Palette.hotPink : Palette.ink)
+            .buttonStyle(SurfButtonStyle())
             .disabled(!model.againReady)
             .frame(width: cardWidth * 0.60)
             .accessibilityIdentifier("playAgainButton")
+            }
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 18)
@@ -281,7 +383,8 @@ struct DebugPanel: View {
                 Toggle("Large pad", isOn: $model.largePad)
                 Toggle("Whole-screen quadrants", isOn: $model.wholeScreenPad)
                 Toggle("Diagonal swipe", isOn: $model.swipeEnabled)
-                Toggle("Mute", isOn: $model.muted)
+                Toggle("Music", isOn: Binding(get: { model.musicOn }, set: { model.setMusicOn($0) }))
+                Toggle("Sound effects", isOn: Binding(get: { model.effectsOn }, set: { model.setEffectsOn($0) }))
             }
             .navigationTitle("Tune")
         }
@@ -427,5 +530,109 @@ struct TuningGesture: UIViewRepresentable {
                 onReveal()
             }
         }
+    }
+}
+
+struct SurfButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Palette.hotPink)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Palette.buttonPlum, lineWidth: 2)
+            )
+            .offset(y: configuration.isPressed ? 4 : 0)
+    }
+}
+
+struct CalloutBanner: View {
+    let text: String
+    let color: Color
+    @State private var scale: CGFloat = 0.01
+
+    var body: some View {
+        Text(text)
+            .font(.custom("Bungee-Regular", size: 64))
+            .foregroundColor(color)
+            .lineLimit(1)
+            .minimumScaleFactor(0.4)
+            .padding(.horizontal, 24)
+            .shadow(color: Palette.buttonPlum, radius: 0, x: 2, y: 2)
+            .scaleEffect(scale)
+            .accessibilityIdentifier("callout")
+            .accessibilityLabel(text)
+            .onAppear {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    scale = 1.2
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                    withAnimation(.easeOut(duration: 0.07)) {
+                        scale = 1.0
+                    }
+                }
+            }
+    }
+}
+
+struct ConfettiBurst: View {
+    var body: some View {
+        GeometryReader { geo in
+            ForEach(0..<30, id: \.self) { index in
+                ConfettiPiece(index: index, size: geo.size)
+            }
+        }
+    }
+}
+
+private struct ConfettiPiece: View {
+    let index: Int
+    let size: CGSize
+    @State private var fall = false
+
+    var body: some View {
+        let colors = [Palette.gold, Palette.hotPink, Palette.splashTeal, Palette.cream]
+        RoundedRectangle(cornerRadius: 2)
+            .fill(colors[index % colors.count])
+            .frame(width: 8, height: 14)
+            .rotationEffect(.degrees(fall ? Double(index * 24) : 0))
+            .position(
+                x: size.width * CGFloat((index * 37) % 100) / 100,
+                y: fall ? size.height + 20 : -20
+            )
+            .onAppear {
+                withAnimation(.easeIn(duration: 1.2).delay(Double(index) * 0.015)) {
+                    fall = true
+                }
+            }
+    }
+}
+
+struct LicensesView: View {
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                Text(licenseBody)
+                    .font(.custom("Rubik-Regular", size: 13))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+            .navigationTitle("Licenses")
+        }
+    }
+
+    private var licenseBody: String {
+        let chunks = ["OFL-Bungee", "OFL-Rubik"].compactMap { name -> String? in
+            let url = Bundle.main.url(forResource: name, withExtension: "txt")
+                ?? Bundle.main.url(forResource: name, withExtension: "txt", subdirectory: "Licenses")
+            guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+            return text
+        }
+        if chunks.isEmpty {
+            return "Font licenses could not be loaded."
+        }
+        return chunks.joined(separator: "\n\n")
     }
 }

@@ -28,4 +28,9 @@ public enum Lane: String, CaseIterable, Equatable, Hashable, Codable {
     public static func isOppositeDiagonal(_ a: Lane, _ b: Lane) -> Bool {
         a.opposite == b && a != b
     }
+
+    /// Share a side or a band. The two diagonals are not adjacent.
+    public static func isAdjacent(_ a: Lane, _ b: Lane) -> Bool {
+        a != b && (a.isUpper == b.isUpper || a.isRight == b.isRight)
+    }
 }

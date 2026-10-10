@@ -27,11 +27,15 @@ final class HapticPlayer {
         switch kind {
         case "board":
             fire(.light, intensity: 0.8)
-        case "lifeRing":
+        case "lifeRing", "goldenShell":
             fire(.medium, intensity: 0.7)
         default:
             fire(.light, intensity: 0.6)
         }
+    }
+
+    func tier() {
+        fire(.medium, intensity: 0.8)
     }
 
     func miss() {

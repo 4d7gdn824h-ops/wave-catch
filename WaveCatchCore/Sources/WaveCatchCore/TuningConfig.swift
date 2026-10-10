@@ -19,6 +19,10 @@ public struct TuningConfig: Equatable {
     /// Demo-only: the third successful spawn is a jellyfish when the rules allow one,
     /// so a short proof run can show the silhouette. Normal games leave this off.
     public var demoSpotlightJellyfish: Bool
+    /// Demo-only: the second spawn is a golden shell. Normal games leave this off.
+    public var spotlightGoldenShell: Bool
+    /// Demo-only: a Big Wave warning begins once the combo reaches 5.
+    public var spotlightBigWave: Bool
 
     public init(
         speedMultiplier: Double = 1,
@@ -27,7 +31,9 @@ public struct TuningConfig: Equatable {
         bigWaveDuration: Double = 6,
         bigWavesEnabled: Bool = true,
         scriptedKinds: [ObjectKind] = [],
-        demoSpotlightJellyfish: Bool = false
+        demoSpotlightJellyfish: Bool = false,
+        spotlightGoldenShell: Bool = false,
+        spotlightBigWave: Bool = false
     ) {
         self.speedMultiplier = speedMultiplier
         self.spawnRateMultiplier = spawnRateMultiplier
@@ -36,6 +42,8 @@ public struct TuningConfig: Equatable {
         self.bigWavesEnabled = bigWavesEnabled
         self.scriptedKinds = scriptedKinds
         self.demoSpotlightJellyfish = demoSpotlightJellyfish
+        self.spotlightGoldenShell = spotlightGoldenShell
+        self.spotlightBigWave = spotlightBigWave
     }
 
     public func clamped() -> TuningConfig {

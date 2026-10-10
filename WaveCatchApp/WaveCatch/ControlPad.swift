@@ -73,20 +73,22 @@ struct CornerControls: View {
 
     private func cornerFace(_ lane: Lane) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Palette.buttonSand.opacity(0.35))
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Palette.buttonSand.opacity(0.45))
             if pressed == lane {
-                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(Palette.buttonSand.opacity(0.92))
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color(hex: 0xFF5D8F))
             }
             ArrowMark(lane: lane)
-                .stroke(Palette.buttonPlum, lineWidth: 3)
+                .stroke(Palette.cream, style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                .shadow(color: Palette.ink.opacity(0.45), radius: 1.5, x: 0, y: 1.5)
                 .frame(width: 28, height: 28)
         }
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Palette.buttonPlum, lineWidth: 2)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Palette.buttonPlum, lineWidth: 3)
         )
+        .offset(y: pressed == lane ? 4 : 0)
     }
 }
 

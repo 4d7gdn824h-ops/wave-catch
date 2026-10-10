@@ -1,18 +1,12 @@
 import Foundation
 
-/// Screen-normalised paths for the four lanes.
+/// Screen-normalised wave chutes.
 ///
 /// This is the only place that decides where objects travel. Coordinates use the
-/// full landscape screen: x grows right, y grows down. Corner buttons own the
-/// corners, so every sample stays in the middle band and on screen.
-///
-/// Upper lanes leave the lip of the curling wave and arc down toward the upper
-/// corner buttons. Lower lanes skim in from the left and right along the
-/// waterline, with a small bob, and finish above the lower corner buttons.
-/// A 1.3× sprite on a lower sample stays at least 12 points clear of those
-/// buttons on a landscape Pro Max, in both orientations. The surfer stays in
-/// the center. Paths stay inset so a sprite drawn at 1.3× around each sample
-/// remains on screen.
+/// full landscape screen: x grows right, y grows down. Each lane is a crescent
+/// tube of five standing positions. Left chutes begin on the left and curl down
+/// toward the surfer. Right chutes begin on the right and curl down toward the
+/// surfer. Items snap from one position to the next. They do not glide.
 public enum LaneGeometry {
     public struct Point: Equatable {
         public var x: Double
@@ -24,43 +18,61 @@ public enum LaneGeometry {
         }
     }
 
-    public static func point(lane: Lane, progress: Double) -> Point {
-        let u = min(1, max(0, progress))
+    /// Standing positions on a chute, including the drop.
+    public static let stepCount = 5
+    /// Advances from position 1 to the drop at position 5.
+    public static let hopsToDrop = 4
+
+    public static func endpoints(_ lane: Lane) -> (start: Point, end: Point) {
         switch lane {
         case .upperLeft:
-            return quadratic(
-                Point(x: 0.40, y: 0.26),
-                Point(x: 0.16, y: 0.30),
-                Point(x: 0.24, y: 0.38),
-                u
-            )
+            return (Point(x: 0.28, y: 0.11), Point(x: 0.42, y: 0.42))
         case .upperRight:
-            return quadratic(
-                Point(x: 0.60, y: 0.26),
-                Point(x: 0.84, y: 0.30),
-                Point(x: 0.76, y: 0.38),
-                u
-            )
+            return (Point(x: 0.72, y: 0.11), Point(x: 0.58, y: 0.42))
         case .lowerLeft:
-            let y = 0.496 + 0.008 * sin(u * Double.pi * 3)
-            return Point(x: 0.22 + 0.10 * u, y: y)
+            return (Point(x: 0.26, y: 0.46), Point(x: 0.40, y: 0.76))
         case .lowerRight:
-            let y = 0.496 + 0.008 * sin(u * Double.pi * 3 + 0.6)
-            return Point(x: 0.78 - 0.10 * u, y: y)
+            return (Point(x: 0.74, y: 0.46), Point(x: 0.60, y: 0.76))
         }
     }
 
+    /// Off-chord bend that pulls the tube into a crescent.
+    private static func bend(_ lane: Lane) -> Point {
+        switch lane {
+        case .upperLeft:
+            return Point(x: 0.48, y: 0.16)
+        case .upperRight:
+            return Point(x: 0.52, y: 0.16)
+        case .lowerLeft:
+            return Point(x: 0.46, y: 0.50)
+        case .lowerRight:
+            return Point(x: 0.54, y: 0.50)
+        }
+    }
+
+    /// `progress` 0 is position 1 and 1 is the drop. The path is a quadratic crescent.
+    public static func point(lane: Lane, progress: Double) -> Point {
+        let t = min(1, max(0, progress))
+        let ends = endpoints(lane)
+        let control = bend(lane)
+        let stay = 1 - t
+        return Point(
+            x: stay * stay * ends.start.x + 2 * stay * t * control.x + t * t * ends.end.x,
+            y: stay * stay * ends.start.y + 2 * stay * t * control.y + t * t * ends.end.y
+        )
+    }
+
+    /// `step` is 1...5. Values outside that range clamp.
+    public static func point(lane: Lane, step: Int) -> Point {
+        let clamped = min(stepCount, max(1, step))
+        let progress = Double(clamped - 1) / Double(stepCount - 1)
+        return point(lane: lane, progress: progress)
+    }
+
     public static func catchSpot(_ lane: Lane) -> Point {
-        point(lane: lane, progress: 1)
+        point(lane: lane, step: stepCount)
     }
 
-    /// Where the surfer's body sits, as a fraction of the screen. Poses offset from here.
-    public static let surferAnchor = Point(x: 0.50, y: 0.50)
-
-    private static func quadratic(_ a: Point, _ control: Point, _ b: Point, _ u: Double) -> Point {
-        let inverse = 1 - u
-        let x = inverse * inverse * a.x + 2 * inverse * u * control.x + u * u * b.x
-        let y = inverse * inverse * a.y + 2 * inverse * u * control.y + u * u * b.y
-        return Point(x: x, y: y)
-    }
+    /// Where the surfer's body sits, low in the water above the sand. Poses offset from here.
+    public static let surferAnchor = Point(x: 0.50, y: 0.58)
 }

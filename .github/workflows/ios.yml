@@ -156,7 +156,10 @@ jobs:
             exit "$BAR"
           fi
           mkdir -p /tmp/wavecatch-proof "$GITHUB_WORKSPACE/docs/proof"
-          rm -f /tmp/wavecatch-proof/record-start /tmp/wavecatch-proof/record-stop /tmp/wavecatch-proof/record-cancel /tmp/wavecatch-proof/record.pid /tmp/wavecatch-proof/raw.mp4
+          rm -f /tmp/wavecatch-proof/record-start /tmp/wavecatch-proof/record-stop /tmp/wavecatch-proof/record-cancel /tmp/wavecatch-proof/record.pid /tmp/wavecatch-proof/raw.mp4 /tmp/wavecatch-proof/audio.log
+          rm -f "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
+          xcrun simctl spawn "${{ steps.sim.outputs.udid }}" log stream --style compact --predicate 'eventMessage CONTAINS "WCAUDIO" OR composedMessage CONTAINS "WCAUDIO"' > /tmp/wavecatch-proof/audio.log 2>&1 &
+          LOG_PID=$!
           (
             deadline=$((SECONDS + 180))
             while [ ! -f /tmp/wavecatch-proof/record-start ] && [ ! -f /tmp/wavecatch-proof/record-cancel ]; do
@@ -171,6 +174,7 @@ jobs:
               exit 0
             fi
             echo "recorder: menu is up"
+            python3 -c 'import time; open("/tmp/wavecatch-proof/record-start.time","w").write(f"{time.time():.6f}\n")'
             xcrun simctl io "${{ steps.sim.outputs.udid }}" recordVideo --codec h264 --force /tmp/wavecatch-proof/raw.mp4 &
             echo $! > /tmp/wavecatch-proof/record.pid
             while [ ! -f /tmp/wavecatch-proof/record-stop ] && [ ! -f /tmp/wavecatch-proof/record-cancel ]; do
@@ -195,31 +199,86 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            DEVELOPMENT_TEAM=""
-          STATUS=$?
+            DEVELOPMENT_TEAM="" \
+            2>&1 | tee /tmp/wavecatch-proof/xcodebuild.log
+          STATUS=${PIPESTATUS[0]}
           touch /tmp/wavecatch-proof/record-cancel
           wait "$WATCH_PID" || true
+          if [ -n "${LOG_PID:-}" ]; then
+            kill -INT "$LOG_PID" || true
+            wait "$LOG_PID" || true
+          fi
           sleep 1
-          bash "$GITHUB_WORKSPACE/Scripts/compress-proof.sh" /tmp/wavecatch-proof/raw.mp4 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
+          echo "audio log lines: $(wc -l < /tmp/wavecatch-proof/audio.log 2>/dev/null || echo 0)"
+          TRIM=""
+          if [ -f /tmp/wavecatch-proof/restart.time ] && [ -f /tmp/wavecatch-proof/record-start.time ]; then
+            TRIM=$(python3 -c 'start=float(open("/tmp/wavecatch-proof/record-start.time").read()); restart=float(open("/tmp/wavecatch-proof/restart.time").read()); print(f"{max(1.0, restart-start+3.0):.3f}")')
+            echo "trim gameplay to ${TRIM}s (3s after restart)"
+          fi
+          if [ -n "$TRIM" ]; then
+            bash "$GITHUB_WORKSPACE/Scripts/compress-proof.sh" /tmp/wavecatch-proof/raw.mp4 /tmp/wavecatch-proof/silent.mp4 "$TRIM"
+          else
+            bash "$GITHUB_WORKSPACE/Scripts/compress-proof.sh" /tmp/wavecatch-proof/raw.mp4 /tmp/wavecatch-proof/silent.mp4
+          fi
           COMPRESS=$?
+          if [ "$COMPRESS" -eq 0 ]; then
+            if [ ! -s /tmp/wavecatch-proof/audio.log ]; then
+              echo "audio log is empty"
+              COMPRESS=1
+            else
+              python3 -m venv /tmp/wavecatch-venv
+              /tmp/wavecatch-venv/bin/pip install numpy
+              /tmp/wavecatch-venv/bin/python3 "$GITHUB_WORKSPACE/Scripts/mux-proof-audio.py" \
+                /tmp/wavecatch-proof/silent.mp4 \
+                /tmp/wavecatch-proof/audio.log \
+                /tmp/wavecatch-proof/record-start.time \
+                "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
+              COMPRESS=$?
+            fi
+          fi
+          if [ "$COMPRESS" -eq 0 ]; then
+            ffprobe -hide_banner -show_streams "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
+            CODEC=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4" || true)
+            echo "audio codec: ${CODEC:-none}"
+            if [ "$CODEC" != "aac" ]; then
+              echo "gameplay.mp4 is missing an AAC audio stream"
+              COMPRESS=1
+            else
+              ffmpeg -i "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4" -af volumedetect -f null - || true
+            fi
+          fi
+          if [ "$COMPRESS" -ne 0 ]; then
+            rm -f "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
+          fi
+          rm -f "$GITHUB_WORKSPACE"/docs/proof/*.png
           cp -f /tmp/wavecatch-proof/*.png "$GITHUB_WORKSPACE/docs/proof/" || true
           for shot in "$GITHUB_WORKSPACE"/docs/proof/*.png; do
             W=$(sips -g pixelWidth "$shot" | awk '/pixelWidth/{print $2}')
             H=$(sips -g pixelHeight "$shot" | awk '/pixelHeight/{print $2}')
             if [ -n "$W" ] && [ -n "$H" ] && [ "$H" -gt "$W" ]; then
-              sips -r 90 "$shot" >/dev/null
+              sips -r 270 "$shot" >/dev/null
+            elif [ -n "$W" ] && [ -n "$H" ]; then
+              sips -r 180 "$shot" >/dev/null
+            fi
+            W=$(sips -g pixelWidth "$shot" | awk '/pixelWidth/{print $2}')
+            H=$(sips -g pixelHeight "$shot" | awk '/pixelHeight/{print $2}')
+            echo "$(basename "$shot") ${W}x${H}"
+            if [ "$W" != "2796" ] || [ "$H" != "1290" ]; then
+              echo "$(basename "$shot") is ${W}x${H}, expected 2796x1290"
+              if [ "$STATUS" -eq 0 ]; then
+                STATUS=1
+              fi
             fi
           done
           ls -lh "$GITHUB_WORKSPACE/docs/proof" || true
-          sips -g pixelWidth -g pixelHeight "$GITHUB_WORKSPACE"/docs/proof/*.png || true
-          GAME_W=$(sips -g pixelWidth "$GITHUB_WORKSPACE/docs/proof/05-gameover.png" | awk '/pixelWidth/{print $2}')
-          GAME_H=$(sips -g pixelHeight "$GITHUB_WORKSPACE/docs/proof/05-gameover.png" | awk '/pixelHeight/{print $2}')
-          if [ "$GAME_W" != "2796" ] || [ "$GAME_H" != "1290" ]; then
-            echo "05-gameover.png is ${GAME_W}x${GAME_H}, expected 2796x1290"
-            if [ "$STATUS" -eq 0 ]; then
-              STATUS=1
+          for name in 01-menu 02-midgame 03-catch 04-golden 05-gameover 06-restart 07-landing-ring; do
+            if [ ! -f "$GITHUB_WORKSPACE/docs/proof/${name}.png" ]; then
+              echo "missing ${name}.png"
+              if [ "$STATUS" -eq 0 ]; then
+                STATUS=1
+              fi
             fi
-          fi
+          done
           if [ "$STATUS" -ne 0 ]; then
             exit "$STATUS"
           fi

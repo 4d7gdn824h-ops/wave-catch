@@ -55,7 +55,7 @@ final class ResolutionTests: XCTestCase {
         _ = firstSpawn(game)
         guard let object = game.liveObjects.first else { return XCTFail("no object") }
         game.setPosition(object.lane.opposite)
-        let events = advance(game, to: object.arrivalTime + Feel.lateGrace + 0.02)
+        let events = advance(game, to: object.arrivalTime + game.activeLateGrace + 0.02)
         guard case .missed(_, _, let lives, let lifeLost) = events.first(where: { if case .missed = $0 { return true }; return false }) else {
             return XCTFail("expected a miss, got \(events)")
         }
@@ -187,14 +187,15 @@ final class ResolutionTests: XCTestCase {
         while spawnedAfter.count < 3 && steps < 8000 && !game.isGameOver {
             followCatchables(game)
             for event in game.tick(dt: 0.02) {
-                if case .spawned(_, let kind, _, let arrival, let travel) = event {
+                if case .spawned(_, let kind, _, let arrival, let travel, _) = event {
                     spawnedAfter.append((arrival - travel, kind, travel))
                 }
             }
             steps += 1
         }
         XCTAssertGreaterThanOrEqual(spawnedAfter.count, 3)
-        XCTAssertGreaterThanOrEqual(spawnedAfter[0].at, missTime + Feel.mercySilence - 0.001)
+        let slowed = SpeedCurve.stepInterval(level: levelBefore - 1)
+        XCTAssertGreaterThanOrEqual(spawnedAfter[0].at, missTime + (2 * slowed) - 0.08)
         let expected = SpeedCurve.travelTime(level: levelBefore - 1, kind: .shell, tuning: tuning)
         XCTAssertEqual(spawnedAfter[0].travel, expected, accuracy: 0.0001)
         XCTAssertTrue(spawnedAfter.prefix(3).allSatisfy { $0.kind != .jellyfish })
@@ -204,20 +205,20 @@ final class ResolutionTests: XCTestCase {
     func testMercyFadesAJellyfishThatWouldLandSoon() {
         var faded = false
         for seed in UInt64(1)...UInt64(40) {
-            let tuning = TuningConfig(jellyfishMultiplier: 2)
+            let tuning = TuningConfig(spawnRateMultiplier: 2, jellyfishMultiplier: 2)
             let game = GameSession(seed: seed, tuning: tuning, startPhase: 8)
             var steps = 0
             while game.time < 20 && !game.isGameOver && steps < 6000 {
                 let live = game.liveObjects
-                let jellySoon = live.contains {
-                    $0.kind == .jellyfish && $0.arrivalTime - game.time > 0.05 && $0.arrivalTime - game.time < 0.85
+                let jellySoon = live.contains { object in
+                    object.kind == .jellyfish && object.step >= 3 && object.step < 5
                 }
                 let soonCatch = live
-                    .filter { $0.kind.isCatchable && $0.arrivalTime - game.time > 0 && $0.arrivalTime - game.time < 0.12 }
+                    .filter { object in object.kind.isCatchable && object.step == 4 }
                     .min { $0.arrivalTime < $1.arrivalTime }
                 if jellySoon, let soonCatch {
                     game.setPosition(soonCatch.lane.opposite)
-                    let events = advance(game, to: soonCatch.arrivalTime + Feel.lateGrace + 0.03)
+                    let events = advance(game, to: soonCatch.arrivalTime + game.activeLateGrace + 0.04)
                     if events.contains(where: { if case .jellyfishFaded = $0 { return true }; return false }) {
                         XCTAssertFalse(events.contains { if case .stung = $0 { return true }; return false })
                         faded = true
