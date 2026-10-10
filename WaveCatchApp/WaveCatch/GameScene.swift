@@ -23,6 +23,10 @@ final class GameScene: SKScene {
     /// Items are 30% larger than the previous pass. The surfer is 40% larger.
     private let itemScale: CGFloat = 1.3 * 1.3
     private let surferScale: CGFloat = 1.4
+    var bodyScale: CGFloat = 1.4
+    private var backdropIsPool: Bool?
+    private let poolArt = PoolArt()
+    private var lastFacing: Side?
     private var poseFrom = CGPoint.zero
     private var poseTo = CGPoint.zero
     private var poseStart: TimeInterval = 0
@@ -113,8 +117,14 @@ final class GameScene: SKScene {
     }
 
     private func layout(now: TimeInterval) {
-        if backdrop == nil || abs(backdropSize.width - size.width) > 2 || abs(backdropSize.height - size.height) > 2 {
+        let wantPool = model?.legacyRamps == false
+        if backdrop == nil || abs(backdropSize.width - size.width) > 2 || abs(backdropSize.height - size.height) > 2 || backdropIsPool != wantPool {
+            backdropIsPool = wantPool
             rebuildBackdrop()
+        }
+        if wantPool {
+            layoutPool(now: now)
+            return
         }
         world.position = shakeOffset(now: now)
         animateDressing(now: now)
@@ -135,6 +145,10 @@ final class GameScene: SKScene {
     }
 
     private func rebuildBackdrop() {
+        if backdropIsPool == true {
+            rebuildPool()
+            return
+        }
         chuteGroups.removeAll()
         glints.removeAll()
         foamLine = nil
@@ -914,16 +928,16 @@ final class GameScene: SKScene {
         return path
     }
 
-    private func playCatchSquash() {
+    func playCatchSquash() {
         guard !UIAccessibility.isReduceMotionEnabled else { return }
         surfer.removeAction(forKey: "squash")
-        let down = SKAction.scaleX(to: surferScale * 1.15, y: surferScale * 0.85, duration: 0.06)
-        let back = SKAction.scale(to: surferScale, duration: 0.12)
+        let down = SKAction.scaleX(to: bodyScale * 1.15, y: bodyScale * 0.85, duration: 0.06)
+        let back = SKAction.scale(to: bodyScale, duration: 0.12)
         back.timingMode = .easeOut
         surfer.run(.sequence([down, back]), withKey: "squash")
     }
 
-    private func playMissWobble() {
+    func playMissWobble() {
         guard let board = surfer.childNode(withName: "board") else { return }
         board.run(.rotate(byAngle: .pi, duration: 0.30))
         surfer.childNode(withName: "bolt")?.run(.rotate(byAngle: .pi, duration: 0.30))
@@ -960,7 +974,7 @@ final class GameScene: SKScene {
         return path
     }
 
-    private func splash(at point: CGPoint, golden: Bool) {
+    func splash(at point: CGPoint, golden: Bool) {
         let count = golden ? 24 : 12
         for index in 0..<count {
             let drop = SKShapeNode(circleOfRadius: golden && index % 3 == 0 ? 5 : 3)
@@ -986,7 +1000,7 @@ final class GameScene: SKScene {
         }
     }
 
-    private func popScore(_ points: Int, combo: Int, lane: Lane) {
+    func popScore(_ points: Int, combo: Int, lane: Lane) {
         let label = SKLabelNode(fontNamed: "Bungee-Regular")
         label.text = "+\(points)"
         label.fontSize = 28
@@ -1030,7 +1044,7 @@ final class GameScene: SKScene {
         CGPoint(x: point.x * size.width, y: (1 - point.y) * size.height)
     }
 
-    private func float(text: String, lane: Lane, color: UIColor) {
+    func float(text: String, lane: Lane, color: UIColor) {
         let label = SKLabelNode(fontNamed: "Bungee-Regular")
         label.text = text
         label.fontSize = text == "CLOSE!" ? 22 : 20
@@ -1060,7 +1074,7 @@ final class GameScene: SKScene {
         )
     }
 
-    private func beginShake(amplitude: CGFloat, duration: Double, now: TimeInterval, reduce: Bool) {
+    func beginShake(amplitude: CGFloat, duration: Double, now: TimeInterval, reduce: Bool) {
         guard !reduce else { return }
         if shaking && now < shakeStart + shakeDuration { return }
         shaking = true
@@ -1088,6 +1102,113 @@ final class GameScene: SKScene {
                 .colorize(with: Palette.uiJelly, colorBlendFactor: 0.7, duration: 0.05),
                 .colorize(withColorBlendFactor: 0, duration: 0.05),
             ]), count: 3),
+        ]))
+    }
+
+    private func rebuildPool() {
+        chuteGroups.removeAll()
+        glints.removeAll()
+        foamLine = nil
+        for child in world.children where child !== surfer {
+            child.removeFromParent()
+        }
+        objectNodes.removeAll()
+        objectSteps.removeAll()
+        ringNodes.removeAll()
+        waveNodes.removeAll()
+        backdrop = nil
+        backdropSize = size
+        poolArt.install(in: world, size: size)
+        if surfer.parent == nil { world.addChild(surfer) }
+        surfer.zPosition = 6
+    }
+
+    private func layoutPool(now: TimeInterval) {
+        world.position = shakeOffset(now: now)
+        let session = model?.mode == .menu ? nil : model?.pool
+        if let session, session.facing != lastFacing {
+            lastFacing = session.facing
+            if !UIAccessibility.isReduceMotionEnabled {
+                surfer.removeAction(forKey: "turn")
+                let down = SKAction.scaleX(to: bodyScale * 1.12, y: bodyScale * 0.88, duration: 0.03)
+                let back = SKAction.scale(to: bodyScale, duration: 0.03)
+                surfer.run(.sequence([down, back]), withKey: "turn")
+            }
+        }
+        if session == nil { lastFacing = .south }
+        poolArt.update(session: session, surfer: surfer, size: size, now: now, bodyScale: &bodyScale)
+        let serial = session?.spinSerial ?? 0
+        if serial != poolArt.seenSpin {
+            poolArt.seenSpin = serial
+            if serial > 0, !UIAccessibility.isReduceMotionEnabled {
+                surfer.zRotation = poolArt.rotation(for: session?.facing ?? .south)
+                surfer.run(.rotate(byAngle: .pi * 2, duration: 0.55), withKey: "spin")
+            }
+        }
+    }
+
+    func presentPool(_ events: [PoolEvent], session: WavePoolSession) {
+        let reduce = UIAccessibility.isReduceMotionEnabled
+        for event in events {
+            switch event {
+            case .caught(_, let side, let kind, let points, let combo, let close):
+                popScore(points, at: poolArt.point(side: side, step: 5), combo: combo)
+                if close { float(text: "CLOSE!", at: poolArt.point(side: side, step: 5), color: Palette.uiSun) }
+                splash(at: poolArt.point(side: side, step: 5), golden: kind == .goldenWave)
+                playCatchSquash()
+            case .missed(_, let side, _, let lifeLost):
+                float(text: lifeLost ? "MISS" : "SAFE", at: poolArt.point(side: side, step: 5), color: Palette.uiHotPink)
+                if lifeLost {
+                    splash(at: poolArt.point(side: side, step: 5), golden: false)
+                    playMissWobble()
+                    beginShake(amplitude: 8, duration: 0.25, now: lastTime ?? 0, reduce: reduce)
+                }
+            case .wiped(_, let side, _, let lifeLost):
+                float(text: "WIPEOUT", at: poolArt.point(side: side, step: 5), color: Palette.uiJelly)
+                splash(at: poolArt.point(side: side, step: 5), golden: false)
+                if lifeLost {
+                    playMissWobble()
+                    beginShake(amplitude: 10, duration: 0.30, now: lastTime ?? 0, reduce: reduce)
+                }
+            case .dodged(_, let side):
+                float(text: "DODGE!", at: poolArt.point(side: side, step: 5), color: Palette.uiSea)
+            case .surgeEnd:
+                splash(at: CGPoint(x: size.width / 2, y: size.height * 0.5), golden: false)
+            default:
+                break
+            }
+        }
+    }
+
+    func popScore(_ points: Int, at point: CGPoint, combo: Int) {
+        let label = SKLabelNode(fontNamed: "Bungee-Regular")
+        label.text = "+\(points)"
+        label.fontSize = 28
+        label.fontColor = scoreColor(combo)
+        label.verticalAlignmentMode = .center
+        label.position = point
+        label.zPosition = 12
+        let tier = CGFloat(ScoreMath.tierIndex(for: combo))
+        label.setScale(min(1.5, 1.0 + 0.1 * tier))
+        world.addChild(label)
+        label.run(.sequence([
+            .group([.moveBy(x: 0, y: 40, duration: 0.45), .fadeOut(withDuration: 0.45)]),
+            .removeFromParent(),
+        ]))
+    }
+
+    func float(text: String, at point: CGPoint, color: UIColor) {
+        let label = SKLabelNode(fontNamed: "Bungee-Regular")
+        label.text = text
+        label.fontSize = text == "CLOSE!" ? 22 : 20
+        label.fontColor = color
+        label.verticalAlignmentMode = .bottom
+        label.position = CGPoint(x: point.x, y: point.y + 36)
+        label.zPosition = 12
+        world.addChild(label)
+        label.run(.sequence([
+            .group([.moveBy(x: 0, y: 32, duration: 0.40), .fadeOut(withDuration: 0.40)]),
+            .removeFromParent(),
         ]))
     }
 }

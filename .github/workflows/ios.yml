@@ -271,7 +271,7 @@ jobs:
             fi
           done
           ls -lh "$GITHUB_WORKSPACE/docs/proof" || true
-          for name in 01-menu 02-midgame 03-catch 04-golden 05-gameover 06-restart 07-landing-ring; do
+          for name in 01-menu 02-pool 03-catch 04-golden 05-gameover 06-restart 07-swell-ring; do
             if [ ! -f "$GITHUB_WORKSPACE/docs/proof/${name}.png" ]; then
               echo "missing ${name}.png"
               if [ "$STATUS" -eq 0 ]; then
