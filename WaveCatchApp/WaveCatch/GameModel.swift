@@ -234,8 +234,8 @@ final class GameModel: ObservableObject {
     }
 
     var timeScale: CGFloat {
-        let stopped = (session?.hitStopRemaining ?? 0) > 0 || (pool?.hitStopRemaining ?? 0) > 0
-        if stopped { return 0 }
+        // Hit-stop is consumed inside the session tick. Zeroing the scene speed
+        // pauses SpriteKit's update, so the stop never drains and the pool freezes.
         if slowVisual { return 0.5 }
         return 1
     }

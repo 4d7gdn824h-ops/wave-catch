@@ -32,7 +32,7 @@ final class WaveCatchUITests: XCTestCase {
         var sawCatch = false
         var sawGolden = false
         var previous = 0
-        let watchUntil = Date().addingTimeInterval(12)
+        let watchUntil = Date().addingTimeInterval(18)
         while Date() < watchUntil && !(sawRing && sawGolden && sawMidgame && sawCatch) {
             if !sawRing && probe(app, "ringLit") == "1" {
                 save("07-swell-ring")

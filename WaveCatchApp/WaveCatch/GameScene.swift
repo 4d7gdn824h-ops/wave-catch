@@ -65,15 +65,21 @@ final class GameScene: SKScene {
     }
 
     override func update(_ currentTime: TimeInterval) {
-        let dt: Double
+        let elapsed: Double
         if let lastTime {
-            dt = min(0.05, max(0, currentTime - lastTime))
+            elapsed = min(1, max(0, currentTime - lastTime))
         } else {
-            dt = 0
+            elapsed = 0
         }
         lastTime = currentTime
-        if dt > 0 {
-            model?.advance(dt: dt)
+        // A stalled frame, including XCTest sleeps on the main thread, still has to
+        // play every tick that came due. One 50 ms cap dropped that time on the floor
+        // and the next swell never arrived during the proof.
+        var left = elapsed
+        while left > 0.0001 {
+            let slice = min(1.0 / 60.0, left)
+            model?.advance(dt: slice)
+            left -= slice
         }
         speed = model?.timeScale ?? 1
         layout(now: currentTime)
