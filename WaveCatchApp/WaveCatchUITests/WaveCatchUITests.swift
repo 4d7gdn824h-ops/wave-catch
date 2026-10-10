@@ -100,8 +100,8 @@ final class WaveCatchUITests: XCTestCase {
         waitForExpectations(timeout: 2)
         Thread.sleep(forTimeInterval: 0.15)
         save("05-gameover")
-        again.tap()
         XCTAssertEqual(newBest.label, "NEW BEST")
+        again.tap()
 
         let backToZero = NSPredicate(format: "label == '0'")
         expectation(for: backToZero, evaluatedWith: app.staticTexts["score"])

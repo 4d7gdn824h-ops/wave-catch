@@ -12,7 +12,8 @@ import wave
 import numpy as np
 
 SR = 44100
-AUDIO = os.path.join("WaveCatchApp", "WaveCatch", "Audio")
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+AUDIO = os.path.join(ROOT, "WaveCatchApp", "WaveCatch", "Audio")
 LINE = re.compile(r"WCAUDIO\s+([0-9.]+)\s+(\S+)\s+([-0-9.]+)\s+([-0-9.]+)")
 
 
@@ -32,7 +33,7 @@ def read_wav(path: str) -> np.ndarray:
 def decode(name: str, cache: str) -> np.ndarray:
     source = os.path.join(AUDIO, name + ".m4a")
     if not os.path.exists(source):
-        return np.zeros(1)
+        raise SystemExit(f"missing audio file {source}")
     wav_path = os.path.join(cache, name + ".wav")
     if not os.path.exists(wav_path):
         subprocess.check_call(
