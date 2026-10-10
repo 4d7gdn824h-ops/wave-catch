@@ -204,8 +204,9 @@ jobs:
           bash "$GITHUB_WORKSPACE/Scripts/compress-proof.sh" /tmp/wavecatch-proof/raw.mp4 /tmp/wavecatch-proof/silent.mp4
           COMPRESS=$?
           if [ "$COMPRESS" -eq 0 ]; then
-            python3 -m pip install --user numpy
-            python3 "$GITHUB_WORKSPACE/Scripts/mux-proof-audio.py" \
+            python3 -m venv /tmp/wavecatch-venv
+            /tmp/wavecatch-venv/bin/pip install numpy
+            /tmp/wavecatch-venv/bin/python3 "$GITHUB_WORKSPACE/Scripts/mux-proof-audio.py" \
               /tmp/wavecatch-proof/silent.mp4 \
               /tmp/wavecatch-proof/xcodebuild.log \
               /tmp/wavecatch-proof/record-start.time \
