@@ -14,6 +14,7 @@ final class TonePlayer {
     private var ducked = false
     private var duckLeft = 0.0
     private let logProof: Bool
+    private var proofLog: FileHandle?
     /// Playback gain. Keeps the loop under the wood-block tick and the catch chime.
     private let musicLevel: Float = 0.18
     private let waveLevel: Float = 0.14
@@ -21,6 +22,11 @@ final class TonePlayer {
     init() {
         logProof = ProcessInfo.processInfo.arguments.contains("-uitest")
             || ProcessInfo.processInfo.arguments.contains("-autoplayDemo")
+        if logProof {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("wavecatch-audio.log")
+            FileManager.default.createFile(atPath: url.path, contents: Data())
+            proofLog = try? FileHandle(forWritingTo: url)
+        }
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.ambient, options: [.mixWithOthers])
         try? session.setActive(true)
@@ -123,7 +129,13 @@ final class TonePlayer {
 
     private func log(_ name: String, pan: Float, volume: Float) {
         guard logProof else { return }
-        print(String(format: "WCAUDIO %.3f %@ %.2f %.2f", Date().timeIntervalSince1970, name, pan, volume))
+        let line = String(format: "WCAUDIO %.3f %@ %.2f %.2f", Date().timeIntervalSince1970, name, pan, volume)
+        print(line)
         fflush(stdout)
+        NSLog("%@", line)
+        guard let data = (line + "\n").data(using: .utf8) else { return }
+        proofLog?.seekToEndOfFile()
+        proofLog?.write(data)
+        try? proofLog?.synchronize()
     }
 }

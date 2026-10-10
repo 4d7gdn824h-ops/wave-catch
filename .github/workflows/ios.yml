@@ -204,11 +204,21 @@ jobs:
           bash "$GITHUB_WORKSPACE/Scripts/compress-proof.sh" /tmp/wavecatch-proof/raw.mp4 /tmp/wavecatch-proof/silent.mp4
           COMPRESS=$?
           if [ "$COMPRESS" -eq 0 ]; then
+            CONTAINER=$(xcrun simctl get_app_container "${{ steps.sim.outputs.udid }}" com.example.wavecatch data || true)
+            AUDIO_LOG=/tmp/wavecatch-proof/xcodebuild.log
+            if [ -n "$CONTAINER" ]; then
+              FOUND=$(find "$CONTAINER" -name wavecatch-audio.log -print -quit || true)
+              if [ -n "$FOUND" ]; then
+                AUDIO_LOG="$FOUND"
+              fi
+            fi
+            echo "audio log: $AUDIO_LOG"
+            wc -l "$AUDIO_LOG" || true
             python3 -m venv /tmp/wavecatch-venv
             /tmp/wavecatch-venv/bin/pip install numpy
             /tmp/wavecatch-venv/bin/python3 "$GITHUB_WORKSPACE/Scripts/mux-proof-audio.py" \
               /tmp/wavecatch-proof/silent.mp4 \
-              /tmp/wavecatch-proof/xcodebuild.log \
+              "$AUDIO_LOG" \
               /tmp/wavecatch-proof/record-start.time \
               "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
             COMPRESS=$?
