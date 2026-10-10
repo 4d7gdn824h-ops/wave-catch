@@ -5,9 +5,14 @@ import WaveCatchCore
 /// Original "Sunset Pool Club" view. A rectangular pool, not a copy of any real venue.
 final class PoolArt {
     var seenSpin = 0
+    var pressedSide: Side?
     private let root = SKNode()
     private var poolRect = CGRect.zero
     private var vents: [Side: SKShapeNode] = [:]
+    private var bulbs: [Side: SKShapeNode] = [:]
+    private var bulges: [Side: SKShapeNode] = [:]
+    private var hints: [Side: SKShapeNode] = [:]
+    private var laneRings: [String: SKShapeNode] = [:]
     private var caustics: [SKShapeNode] = []
     private var palms: [SKNode] = []
     private let chevron = SKShapeNode()
@@ -20,23 +25,27 @@ final class PoolArt {
         root.removeAllChildren()
         root.removeFromParent()
         vents.removeAll()
+        bulbs.removeAll()
+        bulges.removeAll()
+        hints.removeAll()
+        laneRings.removeAll()
         caustics.removeAll()
         palms.removeAll()
         waveNodes.removeAll()
         waveSteps.removeAll()
         world.addChild(root)
 
-        let skyH = size.height * 0.10
+        let skyH = size.height * 0.05
         let deck = SKSpriteNode(texture: SKTexture(image: deckImage(size: size, skyH: skyH)), size: size)
         deck.position = CGPoint(x: size.width / 2, y: size.height / 2)
         deck.zPosition = 0
         root.addChild(deck)
 
-        let poolH = size.height * 0.78
+        let poolH = size.height * 0.86
         let poolW = min(size.width * 0.62, poolH * 1.15)
         poolRect = CGRect(
             x: (size.width - poolW) / 2,
-            y: size.height * 0.08,
+            y: size.height * 0.04,
             width: poolW,
             height: poolH
         )
@@ -61,15 +70,15 @@ final class PoolArt {
 
         for index in 0..<5 {
             let line = SKShapeNode()
-            line.strokeColor = UIColor.white.withAlphaComponent(0.25)
-            line.lineWidth = 2
+            line.strokeColor = UIColor.white.withAlphaComponent(0.35)
+            line.lineWidth = 3
             line.zPosition = 1.3
             root.addChild(line)
             caustics.append(line)
             _ = index
         }
-        addRipples()
         addVents()
+        addHints()
         addProps(size: size)
         warm.size = size
         warm.position = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -89,26 +98,28 @@ final class PoolArt {
         let clamped = min(5, max(1, step))
         let u = CGFloat(clamped - 1) / 4
         let center = CGPoint(x: poolRect.midX, y: poolRect.midY)
-        let gap: CGFloat = 34
+        // North and south share a shorter run once the surfer is bigger, so those rows sit tighter.
+        let nsClear: CGFloat = 58
+        let ewClear: CGFloat = 46
         switch side {
         case .north:
-            let wall = poolRect.maxY - 22
-            return CGPoint(x: center.x, y: wall + (center.y + gap - wall) * u)
+            let wall = poolRect.maxY - 28
+            return CGPoint(x: center.x, y: wall + (center.y + nsClear - wall) * u)
         case .south:
-            let wall = poolRect.minY + 22
-            return CGPoint(x: center.x, y: wall + (center.y - gap - wall) * u)
+            let wall = poolRect.minY + 28
+            return CGPoint(x: center.x, y: wall + (center.y - nsClear - wall) * u)
         case .east:
-            let wall = poolRect.maxX - 22
-            return CGPoint(x: wall + (center.x + gap - wall) * u, y: center.y)
+            let wall = poolRect.maxX - 28
+            return CGPoint(x: wall + (center.x + ewClear - wall) * u, y: center.y)
         case .west:
-            let wall = poolRect.minX + 22
-            return CGPoint(x: wall + (center.x - gap - wall) * u, y: center.y)
+            let wall = poolRect.minX + 28
+            return CGPoint(x: wall + (center.x - ewClear - wall) * u, y: center.y)
         }
     }
 
     func update(session: WavePoolSession?, surfer: SKNode, size: CGSize, now: TimeInterval, bodyScale: inout CGFloat) {
         let drawn: CGFloat = 102
-        let scale = max(0.45, size.height * 0.18 / drawn)
+        let scale = max(0.45, size.height * 0.234 / drawn)
         bodyScale = scale
         if surfer.action(forKey: "squash") == nil && surfer.action(forKey: "turn") == nil {
             surfer.setScale(scale)
@@ -124,7 +135,7 @@ final class PoolArt {
             surfer.position = CGPoint(x: center.x + nudge.x, y: center.y + nudge.y)
         }
         if let session, session.time < session.wipeUntil {
-            surfer.zRotation += sin(CGFloat(now) * 28) * 0.25
+            surfer.zRotation += sin(CGFloat(now) * 32) * 0.45
         }
         let ahead = offset(facing, distance: 28 * scale)
         chevron.position = CGPoint(x: center.x + ahead.x, y: center.y + ahead.y)
@@ -133,13 +144,21 @@ final class PoolArt {
         let sway = sin(CGFloat(now) * 0.7) * 0.08
         for palm in palms { palm.zRotation = sway }
         let blinking = session?.blinkingVents ?? []
-        for (side, vent) in vents {
+        let pulse = 0.55 + 0.45 * abs(sin(CGFloat(now) * 14))
+        for (side, bulb) in bulbs {
             let on = blinking.contains(side)
-            vent.fillColor = on ? Palette.uiHotPink : Palette.uiPlum.withAlphaComponent(0.35)
-            vent.alpha = on ? 0.55 + 0.45 * abs(sin(CGFloat(now) * 10)) : 1
+            bulb.fillColor = on ? Palette.uiHotPink : Palette.uiPlum.withAlphaComponent(0.35)
+            bulb.alpha = on ? pulse : 0.85
+            bulges[side]?.alpha = on ? 0.35 * pulse : 0
+            bulges[side]?.setScale(on ? 0.7 + 0.6 * pulse : 0.4)
+        }
+        for (side, hint) in hints {
+            let hot = pressedSide == side
+            hint.fillColor = hot ? UIColor(hex: 0xFF5D8F) : UIColor(hex: 0xF6D7A7).withAlphaComponent(0.55)
         }
         warm.alpha = (session?.goldenHourRemaining ?? 0) > 0 ? 0.22 : 0
         syncWaves(session)
+        syncLaneRings(session?.liveWaves ?? [])
     }
 
     private func syncWaves(_ session: WavePoolSession?) {
@@ -280,40 +299,103 @@ final class PoolArt {
         }
     }
 
-    private func addRipples() {
-        for side in Side.allCases {
-            for step in 1...5 {
-                let ring = SKShapeNode(circleOfRadius: 12)
-                ring.strokeColor = Palette.uiCream.withAlphaComponent(0.28)
+    /// A ring only under the crest's current row and the next one, not a slot for every row.
+    private func syncLaneRings(_ live: [LiveWave]) {
+        var needed = Set<String>()
+        for wave in live {
+            let steps = wave.step >= 5 ? [5] : [wave.step, wave.step + 1]
+            for step in steps {
+                let key = "\(wave.side.rawValue)#\(step)"
+                needed.insert(key)
+                guard laneRings[key] == nil else { continue }
+                let ring = SKShapeNode(ellipseOf: CGSize(width: 58, height: 16))
+                ring.strokeColor = Palette.uiCream.withAlphaComponent(0.55)
                 ring.fillColor = .clear
-                ring.lineWidth = 1.5
-                ring.position = point(side: side, step: step)
-                ring.zPosition = 1.4
+                ring.lineWidth = 2
+                ring.zPosition = 1.45
+                ring.position = point(side: wave.side, step: step)
+                if wave.side.isEastWest { ring.zRotation = .pi / 2 }
                 root.addChild(ring)
+                laneRings[key] = ring
             }
+        }
+        for (key, node) in laneRings where !needed.contains(key) {
+            node.removeFromParent()
+            laneRings[key] = nil
         }
     }
 
     private func addVents() {
         for side in Side.allCases {
-            let vent = SKShapeNode(rectOf: CGSize(width: 28, height: 14), cornerRadius: 4)
-            vent.fillColor = Palette.uiPlum.withAlphaComponent(0.35)
-            vent.strokeColor = Palette.uiPlum
-            vent.lineWidth = 2
-            vent.zPosition = 1.7
+            let housing = SKShapeNode(rectOf: CGSize(width: 56, height: 28), cornerRadius: 8)
+            housing.fillColor = Palette.uiCream
+            housing.strokeColor = Palette.uiPlum
+            housing.lineWidth = 3
+            housing.zPosition = 2.2
+            let bulb = SKShapeNode(circleOfRadius: 8)
+            bulb.fillColor = Palette.uiPlum.withAlphaComponent(0.35)
+            bulb.strokeColor = Palette.uiPlum
+            bulb.lineWidth = 1.5
+            housing.addChild(bulb)
+            let bulge = SKShapeNode(ellipseOf: CGSize(width: 40, height: 18))
+            bulge.fillColor = UIColor.white.withAlphaComponent(0.35)
+            bulge.strokeColor = Palette.uiCream.withAlphaComponent(0.5)
+            bulge.lineWidth = 2
+            bulge.alpha = 0
+            bulge.zPosition = 1.8
             switch side {
-            case .north: vent.position = CGPoint(x: poolRect.midX, y: poolRect.maxY - 8)
-            case .south: vent.position = CGPoint(x: poolRect.midX, y: poolRect.minY + 8)
+            case .north:
+                housing.position = CGPoint(x: poolRect.midX, y: poolRect.maxY + 16)
+                bulge.position = CGPoint(x: poolRect.midX, y: poolRect.maxY - 16)
+            case .south:
+                housing.position = CGPoint(x: poolRect.midX, y: poolRect.minY - 16)
+                bulge.position = CGPoint(x: poolRect.midX, y: poolRect.minY + 16)
             case .east:
-                vent.position = CGPoint(x: poolRect.maxX - 8, y: poolRect.midY)
-                vent.zRotation = .pi / 2
+                housing.position = CGPoint(x: poolRect.maxX + 16, y: poolRect.midY)
+                housing.zRotation = .pi / 2
+                bulge.position = CGPoint(x: poolRect.maxX - 16, y: poolRect.midY)
+                bulge.zRotation = .pi / 2
             case .west:
-                vent.position = CGPoint(x: poolRect.minX + 8, y: poolRect.midY)
-                vent.zRotation = .pi / 2
+                housing.position = CGPoint(x: poolRect.minX - 16, y: poolRect.midY)
+                housing.zRotation = .pi / 2
+                bulge.position = CGPoint(x: poolRect.minX + 16, y: poolRect.midY)
+                bulge.zRotation = .pi / 2
             }
-            root.addChild(vent)
-            vents[side] = vent
+            root.addChild(housing)
+            root.addChild(bulge)
+            vents[side] = housing
+            bulbs[side] = bulb
+            bulges[side] = bulge
         }
+    }
+
+    private func addHints() {
+        for side in Side.allCases {
+            let hint = SKShapeNode(path: hintPath())
+            hint.fillColor = UIColor(hex: 0xF6D7A7).withAlphaComponent(0.55)
+            hint.strokeColor = Palette.uiPlum
+            hint.lineWidth = 2.5
+            hint.zPosition = 2.4
+            hint.zRotation = rotation(side)
+            switch side {
+            case .north: hint.position = CGPoint(x: poolRect.midX + 46, y: poolRect.maxY + 16)
+            case .south: hint.position = CGPoint(x: poolRect.midX + 46, y: poolRect.minY - 16)
+            case .east: hint.position = CGPoint(x: poolRect.maxX + 16, y: poolRect.midY - 36)
+            case .west: hint.position = CGPoint(x: poolRect.minX - 16, y: poolRect.midY - 36)
+            }
+            root.addChild(hint)
+            hints[side] = hint
+        }
+    }
+
+    private func hintPath() -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 0, y: 9))
+        path.addLine(to: CGPoint(x: 8, y: -6))
+        path.addLine(to: CGPoint(x: 0, y: -1))
+        path.addLine(to: CGPoint(x: -8, y: -6))
+        path.closeSubpath()
+        return path
     }
 
     private func addProps(size: CGSize) {

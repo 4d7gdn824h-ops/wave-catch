@@ -90,6 +90,11 @@ final class GameModel: ObservableObject {
         }
         bestScore = store.bestScore
         showTuning = args.contains("-showTuning")
+        let spotlight = uitest || args.contains("-WCSpotlight")
+        if spotlight {
+            tuning.spotlightGoldenWave = true
+            tuning.spotlightSurge = true
+        }
         if uitest {
             tuning.speedMultiplier = 1
             tuning.spotlightGoldenShell = true
@@ -188,7 +193,7 @@ final class GameModel: ObservableObject {
             if self?.pressedSide == side { self?.pressedSide = nil }
         }
         glowClear = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20, execute: work)
     }
 
     func togglePause() {
@@ -575,7 +580,7 @@ final class GameModel: ObservableObject {
         }
         let name = "catch-\(ladder)"
         if ladder > maxPitch { maxPitch = ladder }
-        tones.play(name, pan: pan(side), volume: 0.85)
+        tones.play(name, pan: pan(side), volume: 1)
         if ScoreMath.callout(for: combo) == nil {
             ladder = (ladder + 1) % 8
         }

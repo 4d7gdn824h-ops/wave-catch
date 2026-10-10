@@ -82,8 +82,9 @@ public enum PoolEvent: Equatable {
 }
 
 public enum PoolTables {
-    /// `L` is the 0-based phase index.
+    /// `L` is the 0-based phase index. Phase 1 keeps two swells so the pool does not sit empty.
     public static func maxWaves(phase: Int) -> Int {
+        if phase <= 1 { return 2 }
         let level = max(0, phase - 1)
         return min(4, 1 + level / 3)
     }
@@ -174,8 +175,10 @@ public final class WavePoolSession {
         self.forcedPattern = forcedPattern
         self.nextStepTime = 0
         self.spawnOnTick = 2
-        self.nextStepTime = SpeedCurve.stepInterval(level: max(0, self.phaseNumber - 1))
+        // First vent blink is on tick 1, inside the first half-second, not after a full step.
+        let opening = SpeedCurve.stepInterval(level: max(0, self.phaseNumber - 1))
             / max(0.5, min(2, tuning.speedMultiplier))
+        self.nextStepTime = min(0.45, opening)
     }
 
     public func setPaused(_ paused: Bool) {
@@ -627,6 +630,7 @@ public final class WavePoolSession {
             combo = 0
             lives -= 1
             lifeLost = true
+            wipeUntil = time + 0.45
             mercySkip = Feel.mercySkipTicks
             mercyCatchesRemaining = Feel.mercyCatches
             mercyChopBlock = Feel.mercyClearSpawns

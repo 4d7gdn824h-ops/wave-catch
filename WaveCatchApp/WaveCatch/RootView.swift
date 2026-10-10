@@ -52,8 +52,6 @@ struct RootView: View {
                     } else {
                         EdgeControls(
                             enabled: !model.paused,
-                            pressed: model.pressedSide,
-                            insets: UIEdgeInsets(top: top, left: left, bottom: bottom, right: right),
                             onSide: { model.setSide($0) }
                         )
                         .frame(width: geo.size.width, height: geo.size.height)
@@ -112,24 +110,23 @@ struct RootView: View {
     private func hud(top: CGFloat, left: CGFloat, right: CGFloat, width: CGFloat) -> some View {
         VStack(spacing: 4) {
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    lifeRow
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .center, spacing: 8) {
+                        lifeRow
+                        Text("\(model.score)")
+                            .font(.custom("Bungee-Regular", size: 32))
+                            .foregroundColor(Palette.foam)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Palette.buttonPlum))
+                            .shadow(color: Palette.buttonPlum.opacity(0.55), radius: 6, y: 2)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityIdentifier("score")
+                            .accessibilityLabel("\(model.score)")
+                    }
                     if !model.legacyRamps {
                         pipRow
                     }
-                }
-                Spacer()
-                VStack(spacing: 2) {
-                    Text("\(model.score)")
-                        .font(.custom("Bungee-Regular", size: 40))
-                        .foregroundColor(Palette.foam)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 4)
-                        .background(Capsule().fill(Palette.buttonPlum))
-                        .shadow(color: Palette.buttonPlum.opacity(0.55), radius: 6, y: 2)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityIdentifier("score")
-                        .accessibilityLabel("\(model.score)")
                     Text(multiplierText)
                         .font(.custom("Bungee-Regular", size: 16))
                         .foregroundColor(Palette.indigo)
@@ -166,8 +163,8 @@ struct RootView: View {
             }
             proofProbes
         }
-        .padding(.leading, left + CornerMetrics.side + CornerMetrics.margin + 8)
-        .padding(.trailing, right + CornerMetrics.side + CornerMetrics.margin + 8)
+        .padding(.leading, model.legacyRamps ? left + CornerMetrics.side + CornerMetrics.margin + 8 : left + 16)
+        .padding(.trailing, model.legacyRamps ? right + CornerMetrics.side + CornerMetrics.margin + 8 : right + 16)
         .padding(.top, top + 8)
         .frame(width: width, alignment: .top)
     }

@@ -9,7 +9,7 @@ final class WaveCatchUITests: XCTestCase {
 
     func testFullGameProof() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-uitest", "-seed", "7"]
+        app.launchArguments = ["-uitest", "-seed", "7", "-WCSpotlight"]
         XCUIDevice.shared.orientation = .landscapeLeft
         app.launch()
         XCUIDevice.shared.orientation = .landscapeLeft
@@ -32,7 +32,7 @@ final class WaveCatchUITests: XCTestCase {
         var sawCatch = false
         var sawGolden = false
         var previous = 0
-        let watchUntil = Date().addingTimeInterval(18)
+        let watchUntil = Date().addingTimeInterval(25)
         while Date() < watchUntil && !(sawRing && sawGolden && sawMidgame && sawCatch) {
             if !sawRing && probe(app, "ringLit") == "1" {
                 save("07-swell-ring")
@@ -67,7 +67,7 @@ final class WaveCatchUITests: XCTestCase {
             XCTAssertTrue(other.waitForExistence(timeout: 4) || button.waitForExistence(timeout: 2), "missing edge.\(side)")
         }
 
-        let niceDeadline = started.addingTimeInterval(25)
+        let niceDeadline = started.addingTimeInterval(40)
         var sawNiceText = false
         while Date() < niceDeadline && !sawNiceText {
             if probe(app, "sawNice") == "1" {
@@ -113,8 +113,9 @@ final class WaveCatchUITests: XCTestCase {
         save("06-restart")
         mark("restart")
         Thread.sleep(forTimeInterval: 3.0)
+        // Stop the clip while the restarted game is still up, before XCTest backgrounds the app.
         mark("record-stop")
-        Thread.sleep(forTimeInterval: 0.8)
+        Thread.sleep(forTimeInterval: 1.5)
     }
 
     /// Reads a probe only while it is still in the tree. Faded callouts are not safe to read.

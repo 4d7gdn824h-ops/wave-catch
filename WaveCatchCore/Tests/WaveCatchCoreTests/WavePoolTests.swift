@@ -77,6 +77,22 @@ final class WavePoolTests: XCTestCase {
         XCTAssertTrue(spawned.prefix(3).allSatisfy { $0 != .chop })
     }
 
+    func testPhaseOneSpawnsSixWavesInTwentyTicks() {
+        let session = WavePoolSession(seed: 7, startPhase: 1)
+        var spawns = 0
+        var firstWhump: Double?
+        for _ in 0..<20 {
+            for event in session.tick(dt: session.stepInterval) {
+                if case .whump = event, firstWhump == nil {
+                    firstWhump = session.time
+                }
+                if case .spawned = event { spawns += 1 }
+            }
+        }
+        XCTAssertLessThan(firstWhump ?? 9, 1, "the first vent blink was late")
+        XCTAssertGreaterThanOrEqual(spawns, 6, "phase 1 spawned \(spawns) waves in 20 ticks")
+    }
+
     func testPhaseOneStaysOnNorthAndSouth() {
         let session = WavePoolSession(seed: 11, startPhase: 1)
         var sides = Set<Side>()
@@ -149,7 +165,7 @@ final class WavePoolTests: XCTestCase {
         XCTAssertEqual(end.chop, 0.18, accuracy: 0.0001)
         XCTAssertEqual(end.pattern, 0.09, accuracy: 0.0001)
         XCTAssertEqual(PoolTables.mix(phase: 5).pattern, 0.20, accuracy: 0.0001)
-        XCTAssertEqual(PoolTables.maxWaves(phase: 1), 1)
+        XCTAssertEqual(PoolTables.maxWaves(phase: 1), 2)
         XCTAssertEqual(PoolTables.maxWaves(phase: 10), 4)
     }
 

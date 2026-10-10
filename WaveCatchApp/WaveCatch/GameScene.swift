@@ -980,10 +980,21 @@ final class GameScene: SKScene {
         return path
     }
 
-    func splash(at point: CGPoint, golden: Bool) {
-        let count = golden ? 24 : 12
+    func splash(at point: CGPoint, golden: Bool, strong: Bool = false) {
+        let count = golden ? 24 : (strong ? 18 : 12)
+        let ring = SKShapeNode(circleOfRadius: strong ? 18 : 10)
+        ring.strokeColor = golden ? Palette.uiGold : Palette.uiCream
+        ring.fillColor = .clear
+        ring.lineWidth = strong ? 4 : 2
+        ring.position = point
+        ring.zPosition = 11
+        world.addChild(ring)
+        ring.run(.sequence([
+            .group([.scale(to: strong ? 3.2 : 2.2, duration: 0.40), .fadeOut(withDuration: 0.40)]),
+            .removeFromParent(),
+        ]))
         for index in 0..<count {
-            let drop = SKShapeNode(circleOfRadius: golden && index % 3 == 0 ? 5 : 3)
+            let drop = SKShapeNode(circleOfRadius: golden && index % 3 == 0 ? 6 : (strong ? 5 : 3))
             if golden {
                 drop.fillColor = index % 3 == 0 ? Palette.uiCream : Palette.uiGold
             } else {
@@ -994,12 +1005,12 @@ final class GameScene: SKScene {
             drop.zPosition = 11
             world.addChild(drop)
             let angle = CGFloat(index) / CGFloat(count) * .pi * 2
-            let dist = CGFloat(28 + (index % 5) * 8)
+            let dist = CGFloat((strong ? 46 : 28) + (index % 5) * (strong ? 12 : 8))
             drop.run(.sequence([
                 .group([
-                    .moveBy(x: cos(angle) * dist, y: sin(angle) * dist, duration: 0.30),
-                    .fadeOut(withDuration: 0.30),
-                    .scale(to: 0.2, duration: 0.30),
+                    .moveBy(x: cos(angle) * dist, y: sin(angle) * dist, duration: strong ? 0.50 : 0.30),
+                    .fadeOut(withDuration: strong ? 0.50 : 0.30),
+                    .scale(to: 0.2, duration: strong ? 0.50 : 0.30),
                 ]),
                 .removeFromParent(),
             ]))
@@ -1142,6 +1153,7 @@ final class GameScene: SKScene {
             }
         }
         if session == nil { lastFacing = .south }
+        poolArt.pressedSide = model?.pressedSide
         poolArt.update(session: session, surfer: surfer, size: size, now: now, bodyScale: &bodyScale)
         let serial = session?.spinSerial ?? 0
         if serial != poolArt.seenSpin {
@@ -1158,23 +1170,26 @@ final class GameScene: SKScene {
         for event in events {
             switch event {
             case .caught(_, let side, let kind, let points, let combo, let close):
-                popScore(points, at: poolArt.point(side: side, step: 5), combo: combo)
-                if close { float(text: "CLOSE!", at: poolArt.point(side: side, step: 5), color: Palette.uiSun) }
-                splash(at: poolArt.point(side: side, step: 5), golden: kind == .goldenWave)
+                let spot = poolArt.point(side: side, step: 5)
+                popScore(points, at: CGPoint(x: spot.x, y: spot.y + 70), combo: combo)
+                if close { float(text: "CLOSE!", at: spot, color: Palette.uiSun) }
+                splash(at: spot, golden: kind == .goldenWave, strong: true)
                 playCatchSquash()
             case .missed(_, let side, _, let lifeLost):
-                float(text: lifeLost ? "MISS" : "SAFE", at: poolArt.point(side: side, step: 5), color: Palette.uiHotPink)
+                let spot = poolArt.point(side: side, step: 5)
+                float(text: lifeLost ? "WIPEOUT" : "SAFE", at: spot, color: Palette.uiHotPink)
                 if lifeLost {
-                    splash(at: poolArt.point(side: side, step: 5), golden: false)
+                    splash(at: spot, golden: false, strong: true)
                     playMissWobble()
-                    beginShake(amplitude: 8, duration: 0.25, now: lastTime ?? 0, reduce: reduce)
+                    beginShake(amplitude: 14, duration: 0.40, now: lastTime ?? 0, reduce: reduce)
                 }
             case .wiped(_, let side, _, let lifeLost):
-                float(text: "WIPEOUT", at: poolArt.point(side: side, step: 5), color: Palette.uiJelly)
-                splash(at: poolArt.point(side: side, step: 5), golden: false)
+                let spot = poolArt.point(side: side, step: 5)
+                float(text: "WIPEOUT", at: spot, color: Palette.uiJelly)
+                splash(at: spot, golden: false, strong: true)
                 if lifeLost {
                     playMissWobble()
-                    beginShake(amplitude: 10, duration: 0.30, now: lastTime ?? 0, reduce: reduce)
+                    beginShake(amplitude: 16, duration: 0.45, now: lastTime ?? 0, reduce: reduce)
                 }
             case .dodged(_, let side):
                 float(text: "DODGE!", at: poolArt.point(side: side, step: 5), color: Palette.uiSea)
@@ -1187,26 +1202,40 @@ final class GameScene: SKScene {
     }
 
     func popScore(_ points: Int, at point: CGPoint, combo: Int) {
+        let shadow = SKLabelNode(fontNamed: "Bungee-Regular")
+        shadow.text = "+\(points)"
+        shadow.fontSize = 48
+        shadow.fontColor = Palette.uiPlum
+        shadow.verticalAlignmentMode = .center
+        shadow.position = CGPoint(x: point.x + 3, y: point.y - 3)
+        shadow.zPosition = 19
         let label = SKLabelNode(fontNamed: "Bungee-Regular")
         label.text = "+\(points)"
-        label.fontSize = 28
+        label.fontSize = 48
         label.fontColor = scoreColor(combo)
         label.verticalAlignmentMode = .center
         label.position = point
-        label.zPosition = 12
+        label.zPosition = 20
         let tier = CGFloat(ScoreMath.tierIndex(for: combo))
-        label.setScale(min(1.5, 1.0 + 0.1 * tier))
+        let scale = min(1.4, 1.0 + 0.08 * tier)
+        label.setScale(scale)
+        shadow.setScale(scale)
+        world.addChild(shadow)
         world.addChild(label)
-        label.run(.sequence([
-            .group([.moveBy(x: 0, y: 40, duration: 0.45), .fadeOut(withDuration: 0.45)]),
-            .removeFromParent(),
-        ]))
+        func rise() -> SKAction {
+            .sequence([
+                .group([.moveBy(x: 0, y: 64, duration: 0.70), .fadeOut(withDuration: 0.70)]),
+                .removeFromParent(),
+            ])
+        }
+        label.run(rise())
+        shadow.run(rise())
     }
 
     func float(text: String, at point: CGPoint, color: UIColor) {
         let label = SKLabelNode(fontNamed: "Bungee-Regular")
         label.text = text
-        label.fontSize = text == "CLOSE!" ? 22 : 20
+        label.fontSize = text == "WIPEOUT" ? 32 : (text == "CLOSE!" ? 22 : 20)
         label.fontColor = color
         label.verticalAlignmentMode = .bottom
         label.position = CGPoint(x: point.x, y: point.y + 36)
