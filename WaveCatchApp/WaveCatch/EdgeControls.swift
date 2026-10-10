@@ -8,7 +8,40 @@ struct EdgeControls: View {
     var onSide: (Side) -> Void
 
     var body: some View {
-        DiagonalTouchCatcher(enabled: enabled, onSide: onSide)
+        GeometryReader { geo in
+            ZStack {
+                DiagonalTouchCatcher(enabled: enabled, onSide: onSide)
+                // UIView subviews inside a representable stay out of the XCUITest tree.
+                // These markers are the zone elements the proof looks up.
+                ForEach(Side.allCases, id: \.self) { side in
+                    zoneMarker(side, in: geo.size)
+                }
+            }
+            .accessibilityElement(children: .contain)
+        }
+    }
+
+    /// Sits on the deck, outside the water. Clear hit testing so the pad still receives the touch.
+    private func zoneMarker(_ side: Side, in size: CGSize) -> some View {
+        Text(side.rawValue)
+            .font(.system(size: 1))
+            .foregroundColor(Palette.buttonSand)
+            .frame(width: 44, height: 44)
+            .position(markerPoint(side, in: size))
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier("edge.\(side.rawValue)")
+            .accessibilityLabel(side.rawValue)
+            .accessibilityAddTraits(.isButton)
+    }
+
+    private func markerPoint(_ side: Side, in size: CGSize) -> CGPoint {
+        switch side {
+        case .north: return CGPoint(x: size.width * 0.50, y: size.height * 0.055)
+        case .south: return CGPoint(x: size.width * 0.50, y: size.height * 0.975)
+        case .east: return CGPoint(x: size.width * 0.97, y: size.height * 0.50)
+        case .west: return CGPoint(x: size.width * 0.03, y: size.height * 0.50)
+        }
     }
 }
 
@@ -48,9 +81,11 @@ final class DiagonalPadView: UIView {
         super.init(frame: frame)
         isMultipleTouchEnabled = true
         backgroundColor = .clear
+        isAccessibilityElement = false
         for zone in zones.values {
             addSubview(zone)
         }
+        accessibilityElements = Side.allCases.compactMap { zones[$0] }
     }
 
     required init?(coder: NSCoder) {

@@ -26,6 +26,11 @@ final class WaveCatchUITests: XCTestCase {
         let score = app.descendants(matching: .any)["score"]
         XCTAssertTrue(score.waitForExistence(timeout: 6))
         XCTAssertFalse(app.buttons["debugGear"].exists)
+        for side in ["north", "east", "south", "west"] {
+            let id = "edge.\(side)"
+            let any = app.descendants(matching: .any)[id]
+            XCTAssertTrue(any.waitForExistence(timeout: 4), "missing \(id)")
+        }
 
         var sawRing = false
         var sawMidgame = false
@@ -60,12 +65,6 @@ final class WaveCatchUITests: XCTestCase {
         XCTAssertTrue(sawGolden, "a golden wave should appear in the proof run")
         XCTAssertTrue(sawMidgame, "score never left zero")
         XCTAssertTrue(sawCatch, "a second catch was not shown")
-
-        for side in ["north", "east", "south", "west"] {
-            let other = app.otherElements["edge.\(side)"]
-            let button = app.buttons["edge.\(side)"]
-            XCTAssertTrue(other.waitForExistence(timeout: 4) || button.waitForExistence(timeout: 2), "missing edge.\(side)")
-        }
 
         let niceDeadline = started.addingTimeInterval(40)
         var sawNiceText = false
