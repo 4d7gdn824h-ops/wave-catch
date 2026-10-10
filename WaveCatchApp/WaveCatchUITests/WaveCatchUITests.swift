@@ -85,13 +85,13 @@ final class WaveCatchUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(number(in: app.staticTexts["maxPitch"]), 3, "the pitch ladder did not rise")
 
         XCTAssertEqual(app.staticTexts["sawBigWave"].label, "1", "Big Wave did not start")
-        XCTAssertGreaterThanOrEqual(number(in: app.staticTexts["longestCombo"]), 5, "combo never reached Nice")
 
         let again = app.buttons["playAgainButton"]
         XCTAssertTrue(again.waitForExistence(timeout: 40), "game over did not appear")
         let newBest = app.staticTexts["newBest"]
         XCTAssertTrue(newBest.waitForExistence(timeout: 1), "NEW BEST was not on the game over card")
         XCTAssertEqual(newBest.label, "NEW BEST")
+        XCTAssertGreaterThanOrEqual(number(in: app.staticTexts["longestCombo"]), 5, "combo never reached Nice")
         save("05-gameover")
         again.tap()
 
