@@ -23,13 +23,15 @@ final class CurveAndScoreTests: XCTestCase {
     }
 
     func testPublishedSpeedTable() {
-        let travels = [2.60, 2.39, 2.20, 2.02, 1.86, 1.71, 1.58, 1.45, 1.33, 1.23, 1.13]
+        XCTAssertEqual(SpeedCurve.stepInterval(level: 0), 0.60, accuracy: 0.0001)
+        XCTAssertEqual(SpeedCurve.stepInterval(level: 9), 0.18, accuracy: 0.0001)
+        XCTAssertEqual(SpeedCurve.stepInterval(level: 14), 0.18, accuracy: 0.0001)
+        XCTAssertEqual(SpeedCurve.travelTime(level: 0), 2.40, accuracy: 0.0001)
+        XCTAssertEqual(SpeedCurve.travelTime(level: 9), 0.72, accuracy: 0.0001)
         let intervals = [1.60, 1.41, 1.24, 1.09, 0.96, 0.84, 0.74, 0.65, 0.58, 0.51, 0.45]
-        for level in 0..<travels.count {
-            XCTAssertEqual(SpeedCurve.travelTime(level: level), travels[level], accuracy: 0.015, "T(\(level))")
+        for level in 0..<intervals.count {
             XCTAssertEqual(SpeedCurve.spawnInterval(level: level), intervals[level], accuracy: 0.015, "I(\(level))")
         }
-        XCTAssertEqual(SpeedCurve.travelTime(level: 13), 0.90, accuracy: 0.001)
         XCTAssertEqual(SpeedCurve.spawnInterval(level: 11), 0.40, accuracy: 0.001)
         XCTAssertEqual(SpeedCurve.spawnInterval(level: 20), 0.40, accuracy: 0.001)
 
@@ -46,14 +48,14 @@ final class CurveAndScoreTests: XCTestCase {
         let board = SpeedCurve.travelTime(level: 3, kind: .board, tuning: TuningConfig())
         let jelly = SpeedCurve.travelTime(level: 3, kind: .jellyfish, tuning: TuningConfig())
         let ring = SpeedCurve.travelTime(level: 3, kind: .lifeRing, tuning: TuningConfig())
-        XCTAssertEqual(board, shell * 0.90, accuracy: 0.0001)
-        XCTAssertEqual(jelly, shell * 1.10, accuracy: 0.0001)
+        XCTAssertEqual(board, shell, accuracy: 0.0001)
+        XCTAssertEqual(jelly, shell, accuracy: 0.0001)
         XCTAssertEqual(ring, shell, accuracy: 0.0001)
 
         let fast = TuningConfig(speedMultiplier: 2)
         XCTAssertEqual(
             SpeedCurve.travelTime(level: 0, kind: .shell, tuning: fast),
-            1.30,
+            1.20,
             accuracy: 0.0001
         )
         let busy = TuningConfig(spawnRateMultiplier: 2)
@@ -65,12 +67,19 @@ final class CurveAndScoreTests: XCTestCase {
 
     func testComboThresholdsAndRounding() {
         XCTAssertEqual(ScoreMath.comboMultiplier(for: 0), 1)
-        XCTAssertEqual(ScoreMath.comboMultiplier(for: 9), 1)
-        XCTAssertEqual(ScoreMath.comboMultiplier(for: 10), 1.5)
-        XCTAssertEqual(ScoreMath.comboMultiplier(for: 24), 1.5)
-        XCTAssertEqual(ScoreMath.comboMultiplier(for: 25), 2)
-        XCTAssertEqual(ScoreMath.comboMultiplier(for: 49), 2)
-        XCTAssertEqual(ScoreMath.comboMultiplier(for: 50), 3)
+        XCTAssertEqual(ScoreMath.comboMultiplier(for: 4), 1)
+        XCTAssertEqual(ScoreMath.comboMultiplier(for: 5), 1.5)
+        XCTAssertEqual(ScoreMath.comboMultiplier(for: 9), 1.5)
+        XCTAssertEqual(ScoreMath.comboMultiplier(for: 10), 2)
+        XCTAssertEqual(ScoreMath.comboMultiplier(for: 19), 2)
+        XCTAssertEqual(ScoreMath.comboMultiplier(for: 20), 3)
+        XCTAssertEqual(ScoreMath.comboMultiplier(for: 34), 3)
+        XCTAssertEqual(ScoreMath.comboMultiplier(for: 35), 4)
+        XCTAssertEqual(ScoreMath.callout(for: 5), "Nice!")
+        XCTAssertEqual(ScoreMath.callout(for: 10), "Rad!")
+        XCTAssertEqual(ScoreMath.callout(for: 20), "Tubular!")
+        XCTAssertEqual(ScoreMath.callout(for: 35), "Wave Master!")
+        XCTAssertNil(ScoreMath.callout(for: 6))
         XCTAssertEqual(ScoreMath.points(base: 1, multiplier: 1), 1)
         XCTAssertEqual(ScoreMath.points(base: 1, multiplier: 1.5), 2)
         XCTAssertEqual(ScoreMath.points(base: 2, multiplier: 1.5), 3)
@@ -110,7 +119,7 @@ final class CurveAndScoreTests: XCTestCase {
     func testSpawnUsesCurveAndSpeedRamp() {
         let game = GameSession(seed: 3, tuning: TuningConfig(bigWavesEnabled: false, scriptedKinds: shells(12)))
         let first = firstSpawn(game)
-        guard case .spawned(_, let kind, _, _, let travel) = first.event else {
+        guard case .spawned(_, let kind, _, _, let travel, _) = first.event else {
             return XCTFail("expected a spawn")
         }
         XCTAssertEqual(kind, .shell)
@@ -128,7 +137,7 @@ final class CurveAndScoreTests: XCTestCase {
         while laterTravel == nil && steps < 4000 && !game.isGameOver {
             followCatchables(game)
             for event in game.tick(dt: 0.02) {
-                if case .spawned(_, .shell, _, _, let travel) = event {
+                if case .spawned(_, .shell, _, _, let travel, _) = event {
                     laterTravel = travel
                 }
             }
@@ -146,7 +155,7 @@ final class CurveAndScoreTests: XCTestCase {
         while seen.count < 3 && steps < 5000 && !game.isGameOver {
             followCatchables(game)
             for event in game.tick(dt: 0.02) {
-                if case .spawned(_, let kind, _, _, let travel) = event {
+                if case .spawned(_, let kind, _, _, let travel, _) = event {
                     let expected = SpeedCurve.travelTime(level: 3, kind: kind, tuning: tuning)
                     XCTAssertEqual(travel, expected, accuracy: 0.0001, "\(kind)")
                     seen.insert(kind)
@@ -193,22 +202,49 @@ final class CurveAndScoreTests: XCTestCase {
             }
         }
         XCTAssertEqual(game.combo, 50)
-        XCTAssertEqual(game.multiplier, 3)
+        XCTAssertEqual(game.multiplier, 4)
         XCTAssertEqual(game.bestCombo, 50)
-        let expectedScore = 9 + (15 * 2) + (25 * 2) + 3
+        // 1–4 ×1, 5–9 ×1.5→2, 10–19 ×2, 20–34 ×3, 35–50 ×4.
+        let expectedScore = 4 + 10 + 20 + 45 + 64
         XCTAssertEqual(game.score, expectedScore)
     }
 
-    func testJellyfishHopIsContinuousButNotLinear() {
-        XCTAssertEqual(Motion.jellyfishHop(0, salt: 1), 0)
-        XCTAssertEqual(Motion.jellyfishHop(1, salt: 1), 1)
-        XCTAssertNotEqual(Motion.jellyfishHop(0.5, salt: 1), 0.5, accuracy: 0.05)
-        var previous = 0.0
-        for step in 0...20 {
-            let value = Motion.jellyfishHop(Double(step) / 20, salt: 3)
-            XCTAssertGreaterThanOrEqual(value + 1e-9, previous)
-            previous = value
+    func testItemsHoldTheirStepUntilTheClockTicks() {
+        let game = GameSession(seed: 1, tuning: TuningConfig(scriptedKinds: shells(3)))
+        _ = firstSpawn(game)
+        guard let spawned = game.liveObjects.first else { return XCTFail("missing object") }
+        XCTAssertEqual(spawned.step, 1)
+        XCTAssertEqual(spawned.progress, 0, accuracy: 0.0001)
+        let held = advance(game, to: game.time + 0.25)
+        XCTAssertFalse(held.contains { if case .stepped = $0 { return true }; return false })
+        XCTAssertEqual(game.liveObjects.first?.step, 1)
+        let moved = advance(game, to: 0.62)
+        XCTAssertTrue(moved.contains { if case .stepped = $0 { return true }; return false })
+        XCTAssertEqual(game.liveObjects.first?.step, 2)
+        XCTAssertEqual(game.liveObjects.first?.progress ?? -1, 0.25, accuracy: 0.0001)
+    }
+
+    func testSharedClockAdvancesEveryChute() {
+        let game = GameSession(seed: 4, tuning: TuningConfig(scriptedKinds: [.shell, .board]), startPhase: 4)
+        var steps = 0
+        while game.liveObjects.filter({ $0.kind == .shell || $0.kind == .board }).count < 2 && steps < 4000 && !game.isGameOver {
+            followCatchables(game)
+            _ = game.tick(dt: 0.02)
+            steps += 1
         }
+        let before = game.liveObjects.filter { $0.kind == .shell || $0.kind == .board }
+        XCTAssertEqual(before.count, 2)
+        let events = advance(game, to: game.time + game.stepInterval + 0.02)
+        let after = Dictionary(uniqueKeysWithValues: game.liveObjects.map { ($0.id, $0.step) })
+        var moved = 0
+        for object in before {
+            if let step = after[object.id] {
+                XCTAssertEqual(step, object.step + 1)
+                moved += 1
+            }
+        }
+        XCTAssertGreaterThan(moved, 0)
+        XCTAssertTrue(events.contains { if case .stepped = $0 { return true }; return false })
     }
 
     func testTelegraphLead() {
@@ -217,12 +253,41 @@ final class CurveAndScoreTests: XCTestCase {
         guard let arrival = game.liveObjects.first?.arrivalTime else {
             return XCTFail("missing object")
         }
-        let before = advance(game, to: arrival - 0.50)
+        let step = SpeedCurve.stepInterval(level: 0)
+        let before = advance(game, to: arrival - step - 0.05)
         XCTAssertFalse(before.contains { if case .telegraph = $0 { return true }; return false })
-        let after = advance(game, to: arrival - 0.20)
+        XCTAssertEqual(game.liveObjects.first?.step, 3)
+        let after = advance(game, to: arrival - step + 0.02)
         XCTAssertTrue(after.contains { if case .telegraph = $0 { return true }; return false })
         XCTAssertEqual(game.liveObjects.first?.telegraph, true)
-        XCTAssertEqual(SpeedCurve.telegraphLead(travel: 2.6), 0.4, accuracy: 0.0001)
-        XCTAssertEqual(SpeedCurve.telegraphLead(travel: 0.9), 0.36, accuracy: 0.0001)
+        XCTAssertEqual(game.liveObjects.first?.step, 4)
+        XCTAssertEqual(SpeedCurve.telegraphLead(travel: 2.4), 0.6, accuracy: 0.0001)
+    }
+
+    func testGoldenShellIsWorthFiveAndSpotlightSpawnsOne() {
+        let scripted = GameSession(seed: 3, tuning: TuningConfig(scriptedKinds: [.goldenShell]))
+        _ = firstSpawn(scripted)
+        guard let object = scripted.liveObjects.first else { return XCTFail("no shell") }
+        scripted.setPosition(object.lane)
+        let caught = advance(scripted, to: object.arrivalTime + 0.05)
+        let points = caught.compactMap { event -> Int? in
+            if case .caught(_, _, _, let awarded, _, _) = event { return awarded }
+            return nil
+        }
+        XCTAssertEqual(points.first, 5)
+
+        let spotlight = GameSession(seed: 9, tuning: TuningConfig(spotlightGoldenShell: true), startPhase: 1)
+        var kinds: [ObjectKind] = []
+        var steps = 0
+        while kinds.count < 3 && steps < 4000 {
+            for event in spotlight.tick(dt: 0.05) {
+                if case .spawned(_, let kind, _, _, _, _) = event {
+                    kinds.append(kind)
+                }
+            }
+            steps += 1
+        }
+        XCTAssertEqual(kinds.first, .shell)
+        XCTAssertEqual(kinds.dropFirst().first, .goldenShell)
     }
 }

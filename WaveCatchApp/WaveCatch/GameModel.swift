@@ -22,16 +22,26 @@ final class GameModel: ObservableObject {
     @Published var pressedLane: Lane?
     @Published var showDebug = false
     @Published var showTuning = false
+    @Published var showLicenses = false
     @Published var ringLit = false
     @Published var largePad = false
     @Published var wholeScreenPad = false
     @Published var swipeEnabled = false
-    @Published var muted = false
+    @Published var musicOn = true
+    @Published var effectsOn = true
     @Published var againReady = false
     @Published var paused = false
     @Published var bigWavePhase: BigWavePhase = .idle
     @Published var tuning = TuningConfig()
     @Published var startPhase = 1
+    @Published var callout = ""
+    @Published var calloutTier = 0
+    @Published var newBestRibbon = false
+    @Published var sawNice = false
+    @Published var sawGolden = false
+    @Published var sawBigWave = false
+    @Published var maxPitch = 0
+    @Published var cardVisible = false
 
     let scene = GameScene()
     let uitest: Bool
@@ -43,11 +53,17 @@ final class GameModel: ObservableObject {
     private let tones = TonePlayer()
     private var againUnlock: DispatchWorkItem?
     private var glowClear: DispatchWorkItem?
-    private var ringLitUntil = 0.0
+    private var calloutClear: DispatchWorkItem?
+    private var ribbonClear: DispatchWorkItem?
+    private var bestAtStart = 0
+    private var didRibbon = false
+    private var ladder = 0
+    private var slowUntil = 0.0
+    private var nextSlow = 0.0
+    private(set) var slowVisual = false
     /// Proof-only steering. Shipping play never sets these.
     private var proofDeath = false
-    private var proofSawPass = false
-    private var proofCruiseUntil: Double?
+    private var proofNice = false
 
     init() {
         let args = ProcessInfo.processInfo.arguments
@@ -60,17 +76,41 @@ final class GameModel: ObservableObject {
         if uitest {
             UserDefaults.standard.removeObject(forKey: "wavecatch.bestScore")
             UserDefaults.standard.removeObject(forKey: "wavecatch.bestCombo")
+            musicOn = true
+            effectsOn = true
+        } else {
+            musicOn = Self.storedFlag("wavecatch.musicOn", default: true)
+            effectsOn = Self.storedFlag("wavecatch.effectsOn", default: true)
         }
         bestScore = store.bestScore
         showTuning = args.contains("-showTuning")
         if uitest {
-            tuning.speedMultiplier = 0.62
-            tuning.demoSpotlightJellyfish = true
+            tuning.speedMultiplier = 1
+            tuning.spotlightGoldenShell = true
+            tuning.spotlightBigWave = true
             startPhase = 1
         }
         scene.model = self
-        tones.start()
+        tones.setMusicOn(musicOn)
+        tones.setEffectsOn(effectsOn)
+        tones.startLoops()
         haptics.prepareAll()
+    }
+
+    func setMusicOn(_ on: Bool) {
+        musicOn = on
+        tones.setMusicOn(on)
+        if !uitest {
+            UserDefaults.standard.set(on, forKey: "wavecatch.musicOn")
+        }
+    }
+
+    func setEffectsOn(_ on: Bool) {
+        effectsOn = on
+        tones.setEffectsOn(on)
+        if !uitest {
+            UserDefaults.standard.set(on, forKey: "wavecatch.effectsOn")
+        }
     }
 
     func startGame() {
@@ -85,22 +125,31 @@ final class GameModel: ObservableObject {
         runBestCombo = 0
         isNewBest = false
         againReady = false
+        cardVisible = false
         paused = false
         bigWavePhase = .idle
         safeLane = "none"
         jellyfishOnScreen = false
         ringLit = false
-        ringLitUntil = 0
+        callout = ""
+        newBestRibbon = false
+        sawNice = false
+        sawGolden = false
+        sawBigWave = false
+        maxPitch = 0
+        ladder = 0
+        bestAtStart = bestScore
+        didRibbon = false
+        slowVisual = false
         proofDeath = false
-        proofSawPass = false
-        proofCruiseUntil = nil
+        proofNice = false
         mode = .playing
         haptics.prepareAll()
+        tones.startLoops()
     }
 
     func setLane(_ lane: Lane) {
         guard mode == .playing, !paused, let session else { return }
-        let changed = session.position != lane
         session.setPosition(lane)
         pressedLane = lane
         glowClear?.cancel()
@@ -109,9 +158,6 @@ final class GameModel: ObservableObject {
         }
         glowClear = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
-        if changed && !muted {
-            tones.play(frequency: 280, duration: 0.05, volume: 0.12, pan: lane.isRight ? 0.4 : -0.4)
-        }
     }
 
     func togglePause() {
@@ -121,17 +167,27 @@ final class GameModel: ObservableObject {
     }
 
     func advance(dt: Double) {
+        tones.update(dt: dt)
         guard mode == .playing, !paused, let session else { return }
         steerProof(session)
         session.tuning = tuning.clamped()
-        let events = session.tick(dt: dt)
+        let now = Date().timeIntervalSince1970
+        slowVisual = now < slowUntil
+        let sim = slowVisual ? dt * 0.5 : dt
+        let events = session.tick(dt: sim)
         publish(session)
         react(to: events, session: session)
-        noteProof(events, session: session)
+        noteProof(session)
         scene.present(events, session: session)
     }
 
-    /// `-uitest` only. Follow the next catchable, step off a jellyfish, then miss on purpose after the combo climbs.
+    var timeScale: CGFloat {
+        if session?.hitStopRemaining ?? 0 > 0 { return 0 }
+        if slowVisual { return 0.5 }
+        return 1
+    }
+
+    /// `-uitest` only. Catch until Nice and the Big Wave breather, then miss on purpose.
     private func steerProof(_ session: GameSession) {
         guard uitest else { return }
         let live = session.liveObjects
@@ -141,7 +197,7 @@ final class GameModel: ObservableObject {
             }
             if let jelly = live.filter({ $0.kind == .jellyfish }).min(by: { $0.arrivalTime < $1.arrivalTime }),
                jelly.lane == session.position,
-               jelly.arrivalTime - session.time < 0.55 {
+               jelly.step >= 4 || jelly.arrivalTime - session.time < session.stepInterval {
                 let away = Lane.allCases.first { candidate in
                     candidate != jelly.lane && !live.contains { $0.kind == .jellyfish && $0.lane == candidate }
                 }
@@ -154,25 +210,13 @@ final class GameModel: ObservableObject {
         }
     }
 
-    private func noteProof(_ events: [GameEvent], session: GameSession) {
+    private func noteProof(_ session: GameSession) {
         guard uitest, !proofDeath else { return }
-        for event in events {
-            switch event {
-            case .jellyfishPassed, .dodged:
-                proofSawPass = true
-            default:
-                break
-            }
+        if session.combo >= 5 {
+            proofNice = true
         }
-        if proofSawPass, session.combo >= 10 {
-            if proofCruiseUntil == nil {
-                proofCruiseUntil = session.time + 1.6
-            }
-            if let until = proofCruiseUntil, session.time >= until {
-                proofDeath = true
-            }
-        } else {
-            proofCruiseUntil = nil
+        if proofNice && session.bigWavePhase == .breather {
+            proofDeath = true
         }
     }
 
@@ -182,41 +226,76 @@ final class GameModel: ObservableObject {
         if combo != session.combo { combo = session.combo }
         if multiplier != session.multiplier { multiplier = session.multiplier }
         if runBestCombo != session.bestCombo { runBestCombo = session.bestCombo }
-        if bigWavePhase != session.bigWavePhase { bigWavePhase = session.bigWavePhase }
+        if bigWavePhase != session.bigWavePhase {
+            bigWavePhase = session.bigWavePhase
+            if bigWavePhase != .idle { sawBigWave = true }
+        }
         let lane = session.suggestedLane()?.rawValue ?? "none"
         if safeLane != lane { safeLane = lane }
         let jelly = session.liveObjects.contains { $0.kind == .jellyfish }
         if jellyfishOnScreen != jelly { jellyfishOnScreen = jelly }
-        if session.liveObjects.contains(where: { $0.telegraph }) {
-            ringLitUntil = session.time + 0.35
-        }
-        let lit = session.time < ringLitUntil
+        let golden = session.liveObjects.contains { $0.kind == .goldenShell }
+        if golden { sawGolden = true }
+        let lit = session.liveObjects.contains { $0.telegraph }
         if ringLit != lit { ringLit = lit }
+        if !didRibbon && score > bestAtStart {
+            didRibbon = true
+            newBestRibbon = true
+            tones.play("new-best", pan: 0, volume: 0.8)
+            tones.duck()
+            ribbonClear?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.newBestRibbon = false }
+            ribbonClear = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: work)
+        }
     }
 
     private func react(to events: [GameEvent], session: GameSession) {
         for event in events {
             switch event {
-            case .caught(_, let lane, let kind, _, _, let close):
+            case .caught(_, let lane, let kind, _, let combo, let close):
                 haptics.catchFeedback(kind: kind.rawValue, close: close, wave: session.bigWavePhase == .active)
-                playCatch(kind: kind, lane: lane, close: close, combo: session.combo)
+                playCatch(kind: kind, lane: lane, combo: combo)
+                if close {
+                    let now = Date().timeIntervalSince1970
+                    if now >= nextSlow {
+                        slowUntil = now + Feel.nearMissSlow
+                        nextSlow = now + Feel.nearMissCooldown
+                    }
+                }
             case .missed(_, let lane, _, let lifeLost):
+                ladder = 0
                 if lifeLost {
                     haptics.miss()
-                    playMiss(lane: lane)
+                    tones.play("miss", pan: pan(lane), volume: 0.85)
                 }
             case .stung(_, let lane, _):
+                ladder = 0
                 haptics.sting()
-                playSting(lane: lane)
+                tones.play("sting", pan: pan(lane), volume: 0.9)
             case .dodged(_, let lane):
-                tones.play(frequency: 620, duration: 0.08, volume: 0.35, pan: pan(lane))
+                tones.play("ring", pan: pan(lane), volume: 0.35)
+            case .stepped(let tick, let lanes):
+                let name = tick % 2 == 0 ? "tick" : "tock"
+                tones.play(name, pan: pan(lanes), volume: 0.2)
             case .telegraph(_, let lane, _):
-                let pitch = lane.isUpper ? semitone(880, steps: 5) : 880
-                tones.play(frequency: pitch * 2, duration: 0.04, volume: 0.18, pan: pan(lane))
+                tones.play("ring", pan: pan(lane), volume: 0.28)
+            case .tierReached(let name, _):
+                ladder = 0
+                haptics.tier()
+                tones.play("tier", pan: 0, volume: 0.7)
+                tones.duck()
+                showCallout(name, tier: ScoreMath.tierIndex(for: session.combo))
             case .bigWaveWarning:
-                tones.play(frequency: 220, duration: 0.45, volume: 0.4, pan: 0, sweep: 500)
+                sawBigWave = true
+                tones.play("whoosh", pan: 0, volume: 0.7)
+                tones.duck()
+                showCallout("BIG WAVE!", tier: 4)
             case .bigWaveStart:
-                tones.play(frequency: 140, duration: 0.25, volume: 0.45, pan: 0)
+                tones.setWave(true)
+            case .bigWaveEnd:
+                tones.setWave(false)
+                tones.play("crash", pan: 0, volume: 0.75)
             case .gameOver:
                 finish(session)
             default:
@@ -225,57 +304,66 @@ final class GameModel: ObservableObject {
         }
     }
 
+    private func showCallout(_ text: String, tier: Int) {
+        callout = text
+        calloutTier = tier
+        if text == "Nice!" { sawNice = true }
+        calloutClear?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            if self?.callout == text { self?.callout = "" }
+        }
+        calloutClear = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.85, execute: work)
+    }
+
     private func finish(_ session: GameSession) {
-        let previous = bestScore
+        let previous = bestAtStart
         isNewBest = session.score > previous
         store.record(score: session.score, combo: session.bestCombo)
         bestScore = store.bestScore
         runBestCombo = session.bestCombo
         score = session.score
         lives = 0
-        mode = .gameOver
         againReady = false
+        cardVisible = false
         againUnlock?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            self?.againReady = true
+            guard let self else { return }
+            self.cardVisible = true
+            self.againReady = true
+            self.mode = .gameOver
+            self.tones.play("fanfare", pan: 0, volume: 0.8)
+            self.tones.duck()
         }
         againUnlock = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Feel.againInputLock, execute: work)
-        if !muted {
-            tones.play(frequency: 360, duration: 0.35, volume: 0.4, pan: 0, sweep: -260)
+    }
+
+    private func playCatch(kind: ObjectKind, lane: Lane, combo: Int) {
+        if kind == .goldenShell {
+            tones.play("golden", pan: pan(lane), volume: 0.9)
+            return
         }
-    }
-
-    private func playCatch(kind: ObjectKind, lane: Lane, close: Bool, combo: Int) {
-        guard !muted else { return }
-        let steps = min(12, combo / 5)
-        let base: Double
-        switch kind {
-        case .shell: base = 740
-        case .board: base = 520
-        case .lifeRing: base = 988
-        case .jellyfish: base = 700
+        let name = "catch-\(ladder)"
+        if ladder > maxPitch { maxPitch = ladder }
+        tones.play(name, pan: pan(lane), volume: 0.85)
+        if ScoreMath.callout(for: combo) == nil {
+            ladder = (ladder + 1) % 8
         }
-        let pitched = semitone(lane.isUpper ? semitone(base, steps: 5) : base, steps: steps)
-        tones.play(frequency: close ? pitched * 1.25 : pitched, duration: close ? 0.09 : 0.07, volume: 0.45, pan: pan(lane))
-    }
-
-    private func playMiss(lane: Lane) {
-        guard !muted else { return }
-        tones.play(frequency: 420, duration: 0.18, volume: 0.5, pan: pan(lane), sweep: -240)
-    }
-
-    private func playSting(lane: Lane) {
-        guard !muted else { return }
-        tones.play(frequency: 90, duration: 0.2, volume: 0.5, pan: pan(lane))
-        tones.play(frequency: 1800, duration: 0.05, volume: 0.3, pan: pan(lane))
     }
 
     private func pan(_ lane: Lane) -> Float {
-        lane.isRight ? 0.5 : -0.5
+        lane.isRight ? 0.55 : -0.55
     }
 
-    private func semitone(_ frequency: Double, steps: Int) -> Double {
-        frequency * pow(2, Double(steps) / 12)
+    private func pan(_ lanes: [Lane]) -> Float {
+        guard !lanes.isEmpty else { return 0 }
+        let total = lanes.reduce(Float(0)) { $0 + ($1.isRight ? 0.45 : -0.45) }
+        return total / Float(lanes.count)
+    }
+
+    private static func storedFlag(_ key: String, default defaultValue: Bool) -> Bool {
+        if UserDefaults.standard.object(forKey: key) == nil { return defaultValue }
+        return UserDefaults.standard.bool(forKey: key)
     }
 }

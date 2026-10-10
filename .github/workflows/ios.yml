@@ -195,13 +195,23 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            DEVELOPMENT_TEAM=""
-          STATUS=$?
+            DEVELOPMENT_TEAM="" \
+            2>&1 | tee /tmp/wavecatch-proof/xcodebuild.log
+          STATUS=${PIPESTATUS[0]}
           touch /tmp/wavecatch-proof/record-cancel
           wait "$WATCH_PID" || true
           sleep 1
-          bash "$GITHUB_WORKSPACE/Scripts/compress-proof.sh" /tmp/wavecatch-proof/raw.mp4 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
+          bash "$GITHUB_WORKSPACE/Scripts/compress-proof.sh" /tmp/wavecatch-proof/raw.mp4 /tmp/wavecatch-proof/silent.mp4
           COMPRESS=$?
+          if [ "$COMPRESS" -eq 0 ]; then
+            python3 -m pip install --user numpy
+            python3 "$GITHUB_WORKSPACE/Scripts/mux-proof-audio.py" \
+              /tmp/wavecatch-proof/silent.mp4 \
+              /tmp/wavecatch-proof/xcodebuild.log \
+              /tmp/wavecatch-proof/record-start.time \
+              "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
+            COMPRESS=$?
+          fi
           cp -f /tmp/wavecatch-proof/*.png "$GITHUB_WORKSPACE/docs/proof/" || true
           for shot in "$GITHUB_WORKSPACE"/docs/proof/*.png; do
             W=$(sips -g pixelWidth "$shot" | awk '/pixelWidth/{print $2}')

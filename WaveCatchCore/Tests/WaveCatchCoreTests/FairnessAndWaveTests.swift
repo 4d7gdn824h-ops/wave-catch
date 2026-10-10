@@ -26,7 +26,7 @@ final class FairnessAndWaveTests: XCTestCase {
         var arrivals: [Double] = []
         let events = play(game, for: 18, dt: 0.05) { followCatchables($0) }
         for event in events {
-            if case .spawned(_, _, _, let arrival, _) = event {
+            if case .spawned(_, _, _, let arrival, _, _) = event {
                 arrivals.append(arrival)
             }
         }
@@ -43,12 +43,12 @@ final class FairnessAndWaveTests: XCTestCase {
         for seed in [UInt64(1), 7, 42, 99, 256] {
             let tuning = TuningConfig(speedMultiplier: 1.5, spawnRateMultiplier: 1.5, jellyfishMultiplier: 1.5)
             let game = GameSession(seed: seed, tuning: tuning, startPhase: 8)
-            var spawns: [(kind: ObjectKind, lane: Lane, arrival: Double)] = []
+            var spawns: [(kind: ObjectKind, lane: Lane, dropStep: Int)] = []
             var catchableLanes: [Lane] = []
             let events = play(game, for: 40, dt: 0.05) { survives($0) }
             for event in events {
-                if case .spawned(_, let kind, let lane, let arrival, _) = event {
-                    spawns.append((kind, lane, arrival))
+                if case .spawned(_, let kind, let lane, _, _, let dropStep) = event {
+                    spawns.append((kind, lane, dropStep))
                     if kind.isCatchable { catchableLanes.append(lane) }
                 }
             }
@@ -91,7 +91,7 @@ final class FairnessAndWaveTests: XCTestCase {
         var steps = 0
         while kinds.count < 4 && steps < 4000 {
             for event in game.tick(dt: 0.05) {
-                if case .spawned(_, let kind, _, _, _) = event {
+                if case .spawned(_, let kind, _, _, _, _) = event {
                     kinds.append(kind)
                 }
             }
@@ -150,7 +150,7 @@ final class FairnessAndWaveTests: XCTestCase {
                     waveOpen = true
                     livesAtActive = game.lives
                     comboAtActive = game.combo
-                case .spawned(_, let kind, _, _, _):
+                case .spawned(_, let kind, _, _, _, _):
                     if waveOpen && endTime == nil {
                         kindsDuringWave.append(kind)
                     }
@@ -240,7 +240,7 @@ final class FairnessAndWaveTests: XCTestCase {
         steps = 0
         while checked < 2 && game.bigWavePhase == .breather && steps < 4000 {
             for event in game.tick(dt: 0.02) {
-                if case .spawned(_, let kind, _, _, let travel) = event {
+                if case .spawned(_, let kind, _, _, let travel, _) = event {
                     XCTAssertNotEqual(kind, .jellyfish)
                     XCTAssertEqual(game.bigWavePhase, .breather)
                     XCTAssertEqual(game.speedLevel, max(0, phaseAtEnd - 2))
@@ -288,38 +288,39 @@ final class FairnessAndWaveTests: XCTestCase {
     }
 
     private func assertFair(
-        _ spawns: [(kind: ObjectKind, lane: Lane, arrival: Double)],
+        _ spawns: [(kind: ObjectKind, lane: Lane, dropStep: Int)],
         catchableLanes: [Lane],
         seed: UInt64
     ) {
         let catchables = spawns.filter { $0.kind.isCatchable }
         for left in catchables.indices {
             for right in (left + 1)..<catchables.count {
-                let gap = abs(catchables[left].arrival - catchables[right].arrival)
+                let gap = abs(catchables[left].dropStep - catchables[right].dropStep)
                 if catchables[left].lane == catchables[right].lane {
-                    XCTAssertGreaterThanOrEqual(gap, Feel.catchableGap - 0.001, "same lane seed \(seed)")
-                } else if Lane.isOppositeDiagonal(catchables[left].lane, catchables[right].lane) {
-                    XCTAssertGreaterThanOrEqual(gap, Feel.diagonalGap - 0.001, "diagonal seed \(seed)")
+                    XCTAssertGreaterThanOrEqual(gap, Feel.catchableTickGap, "same lane seed \(seed)")
                 } else {
-                    XCTAssertGreaterThanOrEqual(gap, Feel.catchableGap - 0.001, "adjacent seed \(seed)")
+                    XCTAssertGreaterThanOrEqual(gap, Feel.relaxedTickGap, "corner seed \(seed)")
                 }
             }
         }
         let jellies = spawns.filter { $0.kind == .jellyfish }
         for jelly in jellies {
-            for other in spawns where other.lane == jelly.lane && other.arrival != jelly.arrival {
+            for other in spawns where other.lane == jelly.lane && other.dropStep != jelly.dropStep {
                 XCTAssertGreaterThanOrEqual(
-                    abs(jelly.arrival - other.arrival),
-                    Feel.jellyfishGap - 0.001,
+                    abs(jelly.dropStep - other.dropStep),
+                    Feel.catchableTickGap,
                     "jelly lane seed \(seed)"
                 )
             }
+            for other in spawns where other.kind.isCatchable && Lane.isAdjacent(jelly.lane, other.lane) {
+                XCTAssertNotEqual(jelly.dropStep, other.dropStep, "adjacent jelly seed \(seed)")
+            }
         }
-        let sorted = jellies.sorted { $0.arrival < $1.arrival }
+        let sorted = jellies.sorted { $0.dropStep < $1.dropStep }
         for start in sorted.indices {
             var lanes = Set<Lane>()
             for next in start..<sorted.count {
-                if sorted[next].arrival - sorted[start].arrival > Feel.jellyfishCluster + 1e-6 { break }
+                if sorted[next].dropStep - sorted[start].dropStep > Feel.jellyfishClusterTicks { break }
                 lanes.insert(sorted[next].lane)
             }
             XCTAssertLessThan(lanes.count, 3, "cluster seed \(seed)")

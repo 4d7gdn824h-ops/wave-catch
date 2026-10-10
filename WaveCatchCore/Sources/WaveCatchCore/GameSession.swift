@@ -1,7 +1,8 @@
 import Foundation
 
 /// Deterministic simulation. Call `setPosition` when input arrives, then `tick(dt)`.
-/// A position change is instant. `tick` applies that position before it resolves arrivals.
+/// A position change is instant. `tick` applies that position before it resolves drops.
+/// Items advance together on one step clock. They do not glide between positions.
 public final class GameSession {
     public let seed: UInt64
     public var tuning: TuningConfig
@@ -22,37 +23,34 @@ public final class GameSession {
     public private(set) var mercyCatchesRemaining: Int = 0
     public private(set) var mercyJellyBlock: Int = 0
     public private(set) var stalled = false
+    public private(set) var globalStep: Int = 0
 
     public var phaseIndex: Int { max(0, phaseNumber - 1) }
 
-    /// Phase index after mercy and the Big Wave breather. Travel time uses this.
+    /// Phase index after mercy and the Big Wave breather. The step clock uses this.
     public var speedLevel: Int { levelForSpeed() }
 
     public var multiplier: Double { currentMultiplier() }
+
+    public var stepInterval: Double { currentStepInterval() }
+
+    public var activeLateGrace: Double {
+        SpeedCurve.lateGrace(stepInterval: currentStepInterval())
+    }
 
     public var liveObjects: [LiveObject] {
         objects.filter { !$0.resolved }.map { object in
             let wobbling: Bool
             if case .grace = object.state { wobbling = true } else { wobbling = false }
-            let progress: Double
-            if wobbling || time >= object.arrivalTime {
-                progress = 1
-            } else {
-                progress = Motion.visualProgress(
-                    kind: object.kind,
-                    spawnTime: object.spawnTime,
-                    arrivalTime: object.arrivalTime,
-                    now: time,
-                    hopSalt: object.hopSalt
-                )
-            }
+            let step = wobbling ? LaneGeometry.stepCount : object.step
             return LiveObject(
                 id: object.id,
                 kind: object.kind,
                 lane: object.lane,
+                step: step,
                 arrivalTime: object.arrivalTime,
                 travel: object.travel,
-                progress: progress,
+                progress: Motion.progress(forStep: step),
                 wobbling: wobbling,
                 telegraph: object.telegraphed,
                 hopSalt: object.hopSalt
@@ -67,7 +65,7 @@ public final class GameSession {
         let jellies = live.filter { $0.kind == .jellyfish }
         for catchable in catchables {
             let blocked = jellies.contains {
-                $0.lane == catchable.lane && abs($0.arrivalTime - catchable.arrivalTime) < 0.45
+                $0.lane == catchable.lane && abs($0.dropDistance - catchable.dropDistance) < 2
             }
             if !blocked { return catchable.lane }
         }
@@ -80,6 +78,8 @@ public final class GameSession {
         self.rng = SeededRNG(seed: seed)
         self.phaseNumber = max(1, startPhase)
         self.nextSpawnTime = 0
+        self.nextStepTime = 0
+        self.scheduledInterval = 0
     }
 
     public func setPaused(_ paused: Bool) {
@@ -120,6 +120,8 @@ public final class GameSession {
         var spawnTime: Double
         var arrivalTime: Double
         var travel: Double
+        var dropStep: Int
+        var step: Int
         var hopSalt: UInt64
         var state: FlightState
         var telegraphed: Bool
@@ -143,14 +145,17 @@ public final class GameSession {
     private var objects: [ActiveObject] = []
     private var nextID = 1
     private var nextSpawnTime: Double
+    private var nextStepTime: Double
+    private var scheduledInterval: Double
     private var waveClock: WaveClock = .none
     private var waveQueued = false
-    private var mercyUntil: Double = 0
+    private var spawnSkipTicks = 0
     private var lastLeft: [Lane: Double] = [:]
     private var catchableLaneHistory: [Lane] = []
     private var scriptIndex = 0
     private var successfulSpawns = 0
     private var usingScriptPeek = false
+    private var didSpotlightWave = false
 
     private func advance(by dt: Double) -> [GameEvent] {
         var events: [GameEvent] = []
@@ -207,17 +212,14 @@ public final class GameSession {
             }
         }
 
-        consider(nextSpawnTime)
+        consider(nextStepTime)
         if let transition = waveTransitionTime() {
             consider(transition)
         }
         for object in objects where !object.resolved {
-            if !object.telegraphed {
-                consider(object.arrivalTime - SpeedCurve.telegraphLead(travel: object.travel))
-            }
             switch object.state {
             case .flying:
-                consider(object.arrivalTime)
+                break
             case .grace(let until), .stingWindow(let until):
                 consider(until)
             }
@@ -236,14 +238,16 @@ public final class GameSession {
 
     private func processInstant() -> [GameEvent] {
         var events: [GameEvent] = []
-        events += fireTelegraphs()
-        events += fireArrivals()
+        events += fireStep()
         events += fireDeadlines()
         purge()
         if isGameOver { return events }
-        events += transitionWave()
+        let waveEvents = transitionWave()
+        events += waveEvents
         syncWavePhase()
-        events += attemptSpawn()
+        if !waveEvents.isEmpty {
+            rescheduleIfRateChanged()
+        }
         purge()
         return events
     }
@@ -252,12 +256,19 @@ public final class GameSession {
         stamp <= time + 1e-8
     }
 
-    private func fireTelegraphs() -> [GameEvent] {
+    private func fireStep() -> [GameEvent] {
+        guard due(nextStepTime) else { return [] }
+        globalStep += 1
         var events: [GameEvent] = []
+        var moved: [Lane] = []
+
         for index in objects.indices {
-            if objects[index].resolved || objects[index].telegraphed { continue }
-            let lead = SpeedCurve.telegraphLead(travel: objects[index].travel)
-            if due(objects[index].arrivalTime - lead) {
+            guard !objects[index].resolved, isFlying(objects[index]) else { continue }
+            objects[index].step += 1
+            if !moved.contains(objects[index].lane) {
+                moved.append(objects[index].lane)
+            }
+            if objects[index].step == LaneGeometry.stepCount - 1 && !objects[index].telegraphed {
                 objects[index].telegraphed = true
                 events.append(.telegraph(
                     id: objects[index].id,
@@ -266,22 +277,39 @@ public final class GameSession {
                 ))
             }
         }
+
+        events += resolveDrops()
+
+        let interval = currentStepInterval()
+        scheduledInterval = interval
+        nextStepTime = time + interval
+        if spawnSkipTicks > 0 {
+            spawnSkipTicks -= 1
+            if nextSpawnTime <= time + 1e-8 {
+                nextSpawnTime = nextStepTime
+            }
+        } else {
+            events += attemptSpawn()
+        }
+        refreshArrivals()
+        events.append(.stepped(tick: globalStep, lanes: moved))
         return events
     }
 
-    private func fireArrivals() -> [GameEvent] {
+    private func resolveDrops() -> [GameEvent] {
         var events: [GameEvent] = []
         let dueIndexes = objects.indices.filter { index in
-            !objects[index].resolved && isFlying(objects[index]) && due(objects[index].arrivalTime)
+            !objects[index].resolved && isFlying(objects[index]) && objects[index].step >= LaneGeometry.stepCount
         }
         let ordered = dueIndexes.sorted { lhs, rhs in
             let leftCatchable = objects[lhs].kind.isCatchable
             let rightCatchable = objects[rhs].kind.isCatchable
             if leftCatchable != rightCatchable { return leftCatchable && !rightCatchable }
-            return objects[lhs].arrivalTime < objects[rhs].arrivalTime
+            return objects[lhs].dropStep < objects[rhs].dropStep
         }
         for index in ordered {
             if objects[index].resolved { continue }
+            objects[index].arrivalTime = time
             events += arrive(index)
             if isGameOver { break }
         }
@@ -316,7 +344,7 @@ public final class GameSession {
     private func arrive(_ index: Int) -> [GameEvent] {
         if objects[index].kind == .jellyfish {
             if position == objects[index].lane {
-                let until = objects[index].arrivalTime + Feel.stingConfirm
+                let until = time + Feel.stingConfirm
                 objects[index].state = .stingWindow(until: until)
                 return []
             }
@@ -328,7 +356,7 @@ public final class GameSession {
         if position == objects[index].lane {
             return catchObject(index, close: false)
         }
-        let until = objects[index].arrivalTime + Feel.lateGrace
+        let until = time + activeLateGrace
         objects[index].state = .grace(until: until)
         return []
     }
@@ -375,7 +403,16 @@ public final class GameSession {
             ),
             .comboChanged(combo: combo, multiplier: mult),
         ]
+        if let name = ScoreMath.callout(for: combo) {
+            events.append(.tierReached(name: name, multiplier: mult))
+        }
         events += maybeAdvancePhase()
+        if tuning.spotlightBigWave && !didSpotlightWave && combo >= 5 {
+            didSpotlightWave = true
+            events += beginWarning()
+        }
+        hold(Feel.hitStopCatch)
+        rescheduleIfRateChanged()
         return events
     }
 
@@ -405,8 +442,7 @@ public final class GameSession {
         lives -= 1
         let previousCombo = combo
         combo = 0
-        mercyUntil = time + Feel.mercySilence
-        nextSpawnTime = max(nextSpawnTime, mercyUntil)
+        spawnSkipTicks = Feel.mercySkipTicks
         mercyCatchesRemaining = Feel.mercyCatches
         mercyJellyBlock = Feel.mercyClearSpawns
         var events: [GameEvent] = [rewriteLives(primary)]
@@ -414,7 +450,8 @@ public final class GameSession {
             events.append(.comboChanged(combo: 0, multiplier: currentMultiplier()))
         }
         events += fadeImminentJellyfish()
-        hitStopRemaining = hitStop
+        hold(hitStop)
+        rescheduleIfRateChanged()
         if lives <= 0 {
             lives = 0
             isGameOver = true
@@ -422,6 +459,10 @@ public final class GameSession {
             events.append(.gameOver(score: score, bestCombo: bestCombo))
         }
         return events
+    }
+
+    private func hold(_ duration: Double) {
+        hitStopRemaining = max(hitStopRemaining, duration)
     }
 
     private func rewriteLives(_ event: GameEvent, lives override: Int? = nil) -> GameEvent {
@@ -442,7 +483,8 @@ public final class GameSession {
             let object = objects[index]
             guard !object.resolved, object.kind == .jellyfish else { continue }
             guard isFlying(object) else { continue }
-            guard object.arrivalTime > time - 1e-9, object.arrivalTime <= time + Feel.mercySilence + 1e-9 else { continue }
+            let remaining = object.dropStep - globalStep
+            guard remaining >= 1, remaining <= Feel.mercySkipTicks else { continue }
             objects[index].resolved = true
             events.append(.jellyfishFaded(id: object.id, lane: object.lane))
         }
@@ -527,10 +569,6 @@ public final class GameSession {
     private func attemptSpawn() -> [GameEvent] {
         guard due(nextSpawnTime) else { return [] }
 
-        if time < mercyUntil - 1e-8 {
-            nextSpawnTime = mercyUntil
-            return []
-        }
         if case .warning(let end) = waveClock, time < end - 1e-8 {
             nextSpawnTime = end
             return []
@@ -539,15 +577,16 @@ public final class GameSession {
         let level = levelForSpeed()
         let cap = SpeedCurve.maxOnScreen(level: level)
         if objects.contains(where: { !$0.resolved }) && unresolvedCount() >= cap {
-            nextSpawnTime = time + 0.05
+            nextSpawnTime = nextStepTime
             return []
         }
 
         let kind = peekKind()
-        let travel = SpeedCurve.travelTime(level: level, kind: kind, tuning: tuning)
-        let arrival = time + travel
-        guard let lane = chooseLane(kind: kind, arrival: arrival) else {
-            nextSpawnTime = time + 0.05
+        let interval = currentStepInterval()
+        let travel = interval * Double(LaneGeometry.hopsToDrop)
+        let dropStep = globalStep + LaneGeometry.hopsToDrop
+        guard let lane = chooseLane(kind: kind, dropStep: dropStep) else {
+            nextSpawnTime = nextStepTime
             usingScriptPeek = false
             return []
         }
@@ -566,30 +605,59 @@ public final class GameSession {
         let id = nextID
         nextID += 1
         let salt = rng.nextUInt64()
-        var spawned = ActiveObject(
+        let arrival = time + travel
+        let spawned = ActiveObject(
             id: id,
             kind: kind,
             lane: lane,
             spawnTime: time,
             arrivalTime: arrival,
             travel: travel,
+            dropStep: dropStep,
+            step: 1,
             hopSalt: salt,
             state: .flying,
             telegraphed: false,
             resolved: false
         )
-        var events: [GameEvent] = []
-        let lead = SpeedCurve.telegraphLead(travel: travel)
-        if due(arrival - lead) {
-            spawned.telegraphed = true
-            events.append(.telegraph(id: id, lane: lane, kind: kind))
-        }
         objects.append(spawned)
-        events.append(.spawned(id: id, kind: kind, lane: lane, arrival: arrival, travel: travel))
         successfulSpawns += 1
-        let interval = SpeedCurve.spawnInterval(level: level, tuning: tuning, bigWave: isWaveActive)
-        nextSpawnTime = time + interval
-        return events
+        let spawnGap = SpeedCurve.spawnInterval(level: level, tuning: tuning, bigWave: isWaveActive)
+        let ticks = SpeedCurve.spawnGapTicks(spawnInterval: spawnGap, stepInterval: interval)
+        nextSpawnTime = time + Double(ticks) * interval
+        return [.spawned(id: id, kind: kind, lane: lane, arrival: arrival, travel: travel, dropStep: dropStep)]
+    }
+
+    private func refreshArrivals() {
+        let interval = max(scheduledInterval, 0.05)
+        for index in objects.indices {
+            guard !objects[index].resolved, isFlying(objects[index]) else { continue }
+            let away = objects[index].dropStep - globalStep
+            if away <= 0 {
+                objects[index].arrivalTime = time
+            } else {
+                objects[index].arrivalTime = nextStepTime + Double(away - 1) * interval
+            }
+        }
+    }
+
+    private func rescheduleIfRateChanged() {
+        let interval = currentStepInterval()
+        if scheduledInterval <= 0 {
+            scheduledInterval = interval
+            return
+        }
+        if abs(interval - scheduledInterval) < 1e-6 { return }
+        let faster = interval < scheduledInterval
+        scheduledInterval = interval
+        if faster {
+            if nextStepTime - time > interval {
+                nextStepTime = time + interval
+            }
+        } else if nextStepTime > time {
+            nextStepTime = time + interval
+        }
+        refreshArrivals()
     }
 
     private func unresolvedCount() -> Int {
@@ -602,15 +670,35 @@ public final class GameSession {
         if tuning.demoSpotlightJellyfish && successfulSpawns == 2 && !blocked {
             return .jellyfish
         }
+        let scripted: Bool
+        let rolled: ObjectKind
         if scriptIndex < tuning.scriptedKinds.count {
             usingScriptPeek = true
+            scripted = true
             var kind = tuning.scriptedKinds[scriptIndex]
             if blocked && kind == .jellyfish {
                 kind = .shell
             }
-            return kind
+            rolled = kind
+        } else {
+            scripted = false
+            rolled = rollKind(blockJellyfish: blocked)
         }
-        return rollKind(blockJellyfish: blocked)
+        return finalizeKind(rolled, scripted: scripted)
+    }
+
+    private func finalizeKind(_ kind: ObjectKind, scripted: Bool) -> ObjectKind {
+        guard kind.isCatchable else { return kind }
+        if mercyCatchesRemaining > 0 || spawnSkipTicks > 0 { return kind }
+        if objects.contains(where: { !$0.resolved && $0.kind == .goldenShell }) { return kind }
+        if !scripted && tuning.spotlightGoldenShell && successfulSpawns == 1 {
+            return .goldenShell
+        }
+        if scripted { return kind }
+        if phaseNumber >= 3 && rng.nextUnit() < Feel.goldenChance {
+            return .goldenShell
+        }
+        return kind
     }
 
     private func commitKindPeek() {
@@ -642,65 +730,58 @@ public final class GameSession {
         return .jellyfish
     }
 
-    private func chooseLane(kind: ObjectKind, arrival: Double) -> Lane? {
+    private func chooseLane(kind: ObjectKind, dropStep: Int) -> Lane? {
         var lanes = Array(Lane.allCases)
         rng.shuffle(&lanes)
-        for lane in lanes where isFair(kind: kind, lane: lane, arrival: arrival) {
+        for lane in lanes where isFair(kind: kind, lane: lane, dropStep: dropStep) {
             return lane
         }
         return nil
     }
 
-    private func isFair(kind: ObjectKind, lane: Lane, arrival: Double) -> Bool {
+    private func isFair(kind: ObjectKind, lane: Lane, dropStep: Int) -> Bool {
         let live = objects.filter { !$0.resolved }
         if kind.isCatchable {
             for other in live where other.kind.isCatchable {
-                let gap = abs(arrival - other.arrivalTime)
-                let needed: Double
+                let gap = abs(dropStep - other.dropStep)
                 if lane == other.lane {
-                    needed = Feel.catchableGap
-                } else if Lane.isOppositeDiagonal(lane, other.lane) {
-                    needed = Feel.diagonalGap
+                    if gap < Feel.catchableTickGap { return false }
                 } else {
-                    needed = Feel.catchableGap
-                }
-                if gap < needed - 1e-6 { return false }
-            }
-            if phaseNumber == 1 {
-                for other in live where other.kind.isCatchable {
-                    if abs(arrival - other.arrivalTime) < Feel.phaseOneArrivalGap - 1e-6 {
-                        return false
-                    }
+                    let needed = phaseNumber < Feel.relaxedGapPhase ? Feel.catchableTickGap : Feel.relaxedTickGap
+                    if gap < needed { return false }
                 }
             }
             if streakBlocks(lane) { return false }
             for other in live where other.kind == .jellyfish && other.lane == lane {
-                if abs(arrival - other.arrivalTime) < Feel.jellyfishGap - 1e-6 { return false }
+                if abs(dropStep - other.dropStep) < Feel.catchableTickGap { return false }
             }
             return true
         }
 
         for other in live where other.lane == lane {
-            if abs(arrival - other.arrivalTime) < Feel.jellyfishGap - 1e-6 { return false }
+            if abs(dropStep - other.dropStep) < Feel.catchableTickGap { return false }
+        }
+        for other in live where other.kind.isCatchable && Lane.isAdjacent(lane, other.lane) {
+            if other.dropStep == dropStep { return false }
         }
         let jellyCap = phaseNumber < 6 ? 1 : Feel.maxJellyfish
         let jellyCount = live.filter { $0.kind == .jellyfish }.count
         if jellyCount >= jellyCap { return false }
 
-        var cluster: [(lane: Lane, arrival: Double)] = [(lane, arrival)]
+        var cluster: [(lane: Lane, dropStep: Int)] = [(lane, dropStep)]
         for other in live where other.kind == .jellyfish {
-            cluster.append((other.lane, other.arrivalTime))
+            cluster.append((other.lane, other.dropStep))
         }
         if jellyfishClusterOverflows(cluster) { return false }
         return true
     }
 
-    private func jellyfishClusterOverflows(_ cluster: [(lane: Lane, arrival: Double)]) -> Bool {
-        let sorted = cluster.sorted { $0.arrival < $1.arrival }
+    private func jellyfishClusterOverflows(_ cluster: [(lane: Lane, dropStep: Int)]) -> Bool {
+        let sorted = cluster.sorted { $0.dropStep < $1.dropStep }
         for start in sorted.indices {
             var lanes = Set<Lane>()
             for next in start..<sorted.count {
-                if sorted[next].arrival - sorted[start].arrival > Feel.jellyfishCluster + 1e-9 {
+                if sorted[next].dropStep - sorted[start].dropStep > Feel.jellyfishClusterTicks {
                     break
                 }
                 lanes.insert(sorted[next].lane)
@@ -725,6 +806,15 @@ public final class GameSession {
         return max(0, phaseIndex - drop)
     }
 
+    private func currentStepInterval() -> Double {
+        let tuned = tuning.clamped()
+        var step = SpeedCurve.stepInterval(level: levelForSpeed()) / tuned.speedMultiplier
+        if isWaveActive {
+            step *= Feel.bigWaveStepScale
+        }
+        return step
+    }
+
     private func currentMultiplier() -> Double {
         var value = ScoreMath.comboMultiplier(for: combo)
         if bigWaveBonusActive { value += 2 }
@@ -738,5 +828,12 @@ public final class GameSession {
     private func isFlying(_ object: ActiveObject) -> Bool {
         if case .flying = object.state { return true }
         return false
+    }
+}
+
+private extension LiveObject {
+    /// Steps still to go, derived from progress so the suggestion helper stays on the chute.
+    var dropDistance: Int {
+        LaneGeometry.stepCount - step
     }
 }

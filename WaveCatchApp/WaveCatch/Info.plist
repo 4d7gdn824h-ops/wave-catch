@@ -8,6 +8,13 @@
 	<string>WaveCatch</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Bungee-Regular.ttf</string>
+		<string>Rubik-Regular.ttf</string>
+		<string>Fonts/Bungee-Regular.ttf</string>
+		<string>Fonts/Rubik-Regular.ttf</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -30,17 +30,17 @@ final class WaveCatchUITests: XCTestCase {
         var sawRing = false
         var sawMidgame = false
         var sawCatch = false
-        var sawJelly = false
+        var sawGolden = false
         var previous = 0
         let watchUntil = Date().addingTimeInterval(12)
-        while Date() < watchUntil && !(sawRing && sawJelly && sawMidgame && sawCatch) {
+        while Date() < watchUntil && !(sawRing && sawGolden && sawMidgame && sawCatch) {
             if !sawRing && app.staticTexts["ringLit"].label == "1" {
                 save("07-landing-ring")
                 sawRing = true
             }
-            if !sawJelly && app.staticTexts["jellyfishOnScreen"].label == "1" {
-                save("04-jellyfish")
-                sawJelly = true
+            if !sawGolden && app.staticTexts["sawGolden"].label == "1" {
+                save("04-golden")
+                sawGolden = true
             }
             let now = number(in: score)
             if now > 0 && !sawMidgame {
@@ -56,7 +56,7 @@ final class WaveCatchUITests: XCTestCase {
         }
 
         XCTAssertTrue(sawRing, "landing ring did not light")
-        XCTAssertTrue(sawJelly, "a jellyfish should appear in the proof run")
+        XCTAssertTrue(sawGolden, "a golden shell should appear in the proof run")
         XCTAssertTrue(sawMidgame, "score never left zero")
         XCTAssertTrue(sawCatch, "a second catch was not shown")
 
@@ -66,17 +66,25 @@ final class WaveCatchUITests: XCTestCase {
             XCTAssertTrue(other.waitForExistence(timeout: 4) || button.waitForExistence(timeout: 2), "missing corner.\(lane)")
         }
 
-        let elapsed = Date().timeIntervalSince(started)
-        Thread.sleep(forTimeInterval: max(0, 32 - elapsed))
+        let niceDeadline = started.addingTimeInterval(25)
+        while Date() < niceDeadline && app.staticTexts["sawNice"].label != "1" {
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        XCTAssertEqual(app.staticTexts["sawNice"].label, "1", "Nice! did not appear")
+        let pitchDeadline = Date().addingTimeInterval(2)
+        while Date() < pitchDeadline && number(in: app.staticTexts["maxPitch"]) < 3 {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        XCTAssertGreaterThanOrEqual(number(in: app.staticTexts["maxPitch"]), 3, "the pitch ladder did not rise")
 
         let again = app.buttons["playAgainButton"]
-        let overDeadline = Date().addingTimeInterval(14)
+        let overDeadline = started.addingTimeInterval(55)
         while Date() < overDeadline && !again.exists {
-            Thread.sleep(forTimeInterval: 0.4)
+            Thread.sleep(forTimeInterval: 0.3)
         }
         XCTAssertTrue(again.waitForExistence(timeout: 2), "game over did not appear")
-        XCTAssertGreaterThanOrEqual(number(in: app.staticTexts["score"]), 8, "score stayed under 8")
-        XCTAssertGreaterThanOrEqual(number(in: app.staticTexts["longestCombo"]), 10, "combo never reached 10")
+        XCTAssertEqual(app.staticTexts["sawBigWave"].label, "1", "Big Wave did not start")
+        XCTAssertGreaterThanOrEqual(number(in: app.staticTexts["longestCombo"]), 5, "combo never reached Nice")
 
         let newBest = app.staticTexts["newBest"]
         XCTAssertTrue(newBest.waitForExistence(timeout: 4), "NEW BEST was not on the game over card")
@@ -110,6 +118,8 @@ final class WaveCatchUITests: XCTestCase {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appendingPathComponent(name)
         FileManager.default.createFile(atPath: url.path, contents: Data("1".utf8))
+        let stamp = directory.appendingPathComponent("\(name).time")
+        try? String(Date().timeIntervalSince1970).write(to: stamp, atomically: true, encoding: .utf8)
     }
 
     private func save(_ name: String) {

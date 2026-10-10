@@ -44,6 +44,11 @@ targets:
         CFBundleDisplayName: Wave Catch
         CFBundleName: WaveCatch
         ITSAppUsesNonExemptEncryption: false
+        UIAppFonts:
+          - Bungee-Regular.ttf
+          - Rubik-Regular.ttf
+          - Fonts/Bungee-Regular.ttf
+          - Fonts/Rubik-Regular.ttf
         UILaunchScreen: {}
         UIRequiresFullScreen: true
         UIStatusBarHidden: false

@@ -1,18 +1,12 @@
 import Foundation
 
-/// Screen-normalised paths for the four lanes.
+/// Screen-normalised wave chutes.
 ///
 /// This is the only place that decides where objects travel. Coordinates use the
-/// full landscape screen: x grows right, y grows down. Corner buttons own the
-/// corners, so every sample stays in the middle band and on screen.
-///
-/// Upper lanes leave the lip of the curling wave and arc down toward the upper
-/// corner buttons. Lower lanes skim in from the left and right along the
-/// waterline, with a small bob, and finish above the lower corner buttons.
-/// A 1.3× sprite on a lower sample stays at least 12 points clear of those
-/// buttons on a landscape Pro Max, in both orientations. The surfer stays in
-/// the center. Paths stay inset so a sprite drawn at 1.3× around each sample
-/// remains on screen.
+/// full landscape screen: x grows right, y grows down. Each lane is a straight
+/// slanted chute of five standing positions. Left chutes begin on the left and
+/// slope down toward the surfer. Right chutes begin on the right and slope down
+/// toward the surfer. Items snap from one position to the next. They do not glide.
 public enum LaneGeometry {
     public struct Point: Equatable {
         public var x: Double
@@ -24,43 +18,45 @@ public enum LaneGeometry {
         }
     }
 
-    public static func point(lane: Lane, progress: Double) -> Point {
-        let u = min(1, max(0, progress))
+    /// Standing positions on a chute, including the drop.
+    public static let stepCount = 5
+    /// Advances from position 1 to the drop at position 5.
+    public static let hopsToDrop = 4
+
+    public static func endpoints(_ lane: Lane) -> (start: Point, end: Point) {
         switch lane {
         case .upperLeft:
-            return quadratic(
-                Point(x: 0.40, y: 0.26),
-                Point(x: 0.16, y: 0.30),
-                Point(x: 0.24, y: 0.38),
-                u
-            )
+            return (Point(x: 0.26, y: 0.20), Point(x: 0.40, y: 0.38))
         case .upperRight:
-            return quadratic(
-                Point(x: 0.60, y: 0.26),
-                Point(x: 0.84, y: 0.30),
-                Point(x: 0.76, y: 0.38),
-                u
-            )
+            return (Point(x: 0.74, y: 0.20), Point(x: 0.60, y: 0.38))
         case .lowerLeft:
-            let y = 0.496 + 0.008 * sin(u * Double.pi * 3)
-            return Point(x: 0.22 + 0.10 * u, y: y)
+            return (Point(x: 0.24, y: 0.42), Point(x: 0.38, y: 0.50))
         case .lowerRight:
-            let y = 0.496 + 0.008 * sin(u * Double.pi * 3 + 0.6)
-            return Point(x: 0.78 - 0.10 * u, y: y)
+            return (Point(x: 0.76, y: 0.42), Point(x: 0.62, y: 0.50))
         }
     }
 
+    /// `progress` 0 is position 1 and 1 is the drop. The path is a straight chord.
+    public static func point(lane: Lane, progress: Double) -> Point {
+        let u = min(1, max(0, progress))
+        let ends = endpoints(lane)
+        return Point(
+            x: ends.start.x + (ends.end.x - ends.start.x) * u,
+            y: ends.start.y + (ends.end.y - ends.start.y) * u
+        )
+    }
+
+    /// `step` is 1...5. Values outside that range clamp.
+    public static func point(lane: Lane, step: Int) -> Point {
+        let clamped = min(stepCount, max(1, step))
+        let progress = Double(clamped - 1) / Double(stepCount - 1)
+        return point(lane: lane, progress: progress)
+    }
+
     public static func catchSpot(_ lane: Lane) -> Point {
-        point(lane: lane, progress: 1)
+        point(lane: lane, step: stepCount)
     }
 
-    /// Where the surfer's body sits, as a fraction of the screen. Poses offset from here.
+    /// Where the surfer's body sits. Poses offset from here.
     public static let surferAnchor = Point(x: 0.50, y: 0.50)
-
-    private static func quadratic(_ a: Point, _ control: Point, _ b: Point, _ u: Double) -> Point {
-        let inverse = 1 - u
-        let x = inverse * inverse * a.x + 2 * inverse * u * control.x + u * u * b.x
-        let y = inverse * inverse * a.y + 2 * inverse * u * control.y + u * u * b.y
-        return Point(x: x, y: y)
-    }
 }
