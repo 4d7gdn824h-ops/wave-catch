@@ -53,6 +53,10 @@ def main() -> None:
             events.append((float(match.group(1)), match.group(2), float(match.group(3)), float(match.group(4))))
     if not events:
         raise SystemExit("no WCAUDIO events in the test log")
+    print(
+        f"record_start {record_start:.3f} first_event {events[0][0]:.3f} "
+        f"delta {events[0][0] - record_start:.3f}s events {len(events)}"
+    )
 
     duration = float(subprocess.check_output(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", video],
@@ -125,7 +129,9 @@ def main() -> None:
         gain = volume * (0.85 + 0.15 * (1 - min(1, abs(pan))))
         mix[dest: dest + (right - left)] += sample[left:right] * gain
 
-    peak = np.max(np.abs(mix)) if total else 1
+    peak = float(np.max(np.abs(mix))) if total else 0.0
+    if peak < 0.01:
+        raise SystemExit(f"soundtrack is silent (peak {peak:.5f})")
     if peak > 0.98:
         mix *= 0.98 / peak
     pcm = (np.clip(mix, -1, 1) * 32767).astype(np.int16)

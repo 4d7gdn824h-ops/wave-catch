@@ -18,7 +18,6 @@ final class GameScene: SKScene {
     private var ringKind: [Lane: ObjectKind] = [:]
     private var ringUntil: [Lane: TimeInterval] = [:]
     private let itemScale: CGFloat = 1.3
-    private var banner: SKLabelNode?
     private var poseFrom = CGPoint.zero
     private var poseTo = CGPoint.zero
     private var poseStart: TimeInterval = 0
@@ -48,8 +47,6 @@ final class GameScene: SKScene {
         objectSteps.removeAll()
         ringNodes.values.forEach { $0.removeFromParent() }
         ringNodes.removeAll()
-        banner?.removeFromParent()
-        banner = nil
         logicalLane = session.position
         poseFrom = poseTarget(session.position)
         poseTo = poseFrom
@@ -129,7 +126,6 @@ final class GameScene: SKScene {
         animateSea(now: now, session: session)
         syncObjects(session)
         syncRings(session, now: now)
-        syncBanner(session)
     }
 
     private func rebuildBackdrop() {
@@ -140,7 +136,6 @@ final class GameScene: SKScene {
         objectSteps.removeAll()
         ringNodes.removeAll()
         waveNodes.removeAll()
-        banner = nil
         let image = skyImage(size: size)
         let sprite = SKSpriteNode(texture: SKTexture(image: image), size: size)
         sprite.position = CGPoint(x: size.width / 2, y: size.height / 2)
@@ -234,10 +229,10 @@ final class GameScene: SKScene {
             ribbon.zPosition = 3
             world.addChild(ribbon)
             for step in 1...LaneGeometry.stepCount {
-                let ring = SKShapeNode(circleOfRadius: 16)
-                ring.strokeColor = Palette.uiCream.withAlphaComponent(0.55)
-                ring.fillColor = Palette.uiCream.withAlphaComponent(0.08)
-                ring.lineWidth = 2
+                let ring = SKShapeNode(circleOfRadius: 14)
+                ring.strokeColor = Palette.uiCream.withAlphaComponent(0.16)
+                ring.fillColor = .clear
+                ring.lineWidth = 1.5
                 ring.position = sk(LaneGeometry.point(lane: lane, step: step))
                 ring.zPosition = 3.2
                 world.addChild(ring)
@@ -251,23 +246,55 @@ final class GameScene: SKScene {
         for step in 1...LaneGeometry.stepCount {
             centers.append(sk(LaneGeometry.point(lane: lane, step: step)))
         }
-        let tube = SKShapeNode(path: ribbonPath(centers, width: 34))
-        tube.fillColor = Palette.uiWaveMid.withAlphaComponent(0.92)
-        tube.strokeColor = Palette.uiCream
-        tube.lineWidth = 4
-        group.addChild(tube)
-        let foam = SKShapeNode(path: ribbonPath(centers, width: 18))
-        foam.fillColor = Palette.uiCream.withAlphaComponent(0.35)
-        foam.strokeColor = .clear
+        let water = SKShapeNode(path: ribbonPath(centers, width: 48))
+        water.fillColor = Palette.uiWaveMid.withAlphaComponent(0.78)
+        water.strokeColor = .clear
+        group.addChild(water)
+        let lip = SKShapeNode(path: ribbonPath(centers, width: 22))
+        lip.fillColor = Palette.uiWaveFront.withAlphaComponent(0.55)
+        lip.strokeColor = .clear
+        group.addChild(lip)
+        let foam = SKShapeNode(path: ribbonPath(centers, width: 48))
+        foam.fillColor = .clear
+        foam.strokeColor = Palette.uiCream.withAlphaComponent(0.92)
+        foam.lineWidth = 5
         group.addChild(foam)
-        for (index, center) in centers.enumerated() {
-            let dot = SKShapeNode(circleOfRadius: index % 2 == 0 ? 3 : 2)
-            dot.fillColor = Palette.uiCream.withAlphaComponent(0.45)
-            dot.strokeColor = .clear
-            dot.position = center
-            group.addChild(dot)
-        }
+        group.addChild(crestLine(centers))
         return group
+    }
+
+    /// A curling foam lip along one side of the chute, so the ramp reads as a breaking wave.
+    private func crestLine(_ centers: [CGPoint]) -> SKShapeNode {
+        let path = CGMutablePath()
+        guard centers.count > 1 else {
+            return SKShapeNode(path: path)
+        }
+        for index in 0..<(centers.count - 1) {
+            let start = centers[index]
+            let end = centers[index + 1]
+            let dx = end.x - start.x
+            let dy = end.y - start.y
+            let length = max(1, hypot(dx, dy))
+            let nx = -dy / length
+            let ny = dx / length
+            let lift: CGFloat = 20
+            let curl: CGFloat = 14
+            path.move(to: CGPoint(x: start.x + nx * lift, y: start.y + ny * lift))
+            let control = CGPoint(
+                x: (start.x + end.x) / 2 + nx * (lift + curl),
+                y: (start.y + end.y) / 2 + ny * (lift + curl)
+            )
+            path.addQuadCurve(
+                to: CGPoint(x: end.x + nx * lift, y: end.y + ny * lift),
+                control: control
+            )
+        }
+        let crest = SKShapeNode(path: path)
+        crest.strokeColor = Palette.uiCream
+        crest.fillColor = .clear
+        crest.lineWidth = 4
+        crest.lineCap = .round
+        return crest
     }
 
     private func ribbonPath(_ centers: [CGPoint], width: CGFloat) -> CGPath {
@@ -352,7 +379,7 @@ final class GameScene: SKScene {
             let node = objectNodes[object.id] ?? makeObject(object.kind)
             if objectNodes[object.id] == nil {
                 objectNodes[object.id] = node
-                node.setScale(itemScale)
+                node.setScale(baseScale(object.kind))
                 world.addChild(node)
             }
             let spot = LaneGeometry.point(lane: object.lane, step: object.step)
@@ -366,7 +393,7 @@ final class GameScene: SKScene {
         }
         for (id, node) in objectNodes where !alive.contains(id) {
             node.run(.sequence([
-                .group([.scale(to: itemScale * 1.15, duration: 0.08), .fadeOut(withDuration: 0.14)]),
+                .group([.scale(to: node.xScale * 1.15, duration: 0.08), .fadeOut(withDuration: 0.14)]),
                 .removeFromParent(),
             ]))
             objectNodes[id] = nil
@@ -449,26 +476,6 @@ final class GameScene: SKScene {
         return CGPath(ellipseIn: CGRect(x: -58, y: -58, width: 116, height: 116), transform: nil)
     }
 
-    private func syncBanner(_ session: GameSession) {
-        let show = session.bigWavePhase == .active
-        if show {
-            let label = banner ?? SKLabelNode(fontNamed: "Avenir-Black")
-            if banner == nil {
-                label.fontSize = 36
-                label.fontColor = Palette.uiSun
-                label.zPosition = 9
-                world.addChild(label)
-                banner = label
-            }
-            label.fontName = "Bungee-Regular"
-            label.text = "RIDE IT"
-            label.position = CGPoint(x: size.width / 2, y: size.height * 0.72)
-        } else {
-            banner?.removeFromParent()
-            banner = nil
-        }
-    }
-
     private func makeObject(_ kind: ObjectKind) -> SKNode {
         let root = SKNode()
         root.name = kind.rawValue
@@ -491,6 +498,26 @@ final class GameScene: SKScene {
         root.addChild(shadow)
         root.addChild(body)
         root.addChild(spec)
+        if kind == .goldenShell {
+            let glow = SKShapeNode(circleOfRadius: 36)
+            glow.fillColor = Palette.uiGold.withAlphaComponent(0.45)
+            glow.strokeColor = Palette.uiGold
+            glow.lineWidth = 2
+            glow.zPosition = -0.5
+            root.addChild(glow)
+            let spark = SKShapeNode(path: sparklePath())
+            spark.fillColor = Palette.uiGold
+            spark.strokeColor = Palette.uiCream
+            spark.lineWidth = 1.5
+            spark.position = CGPoint(x: 22, y: 18)
+            spark.zPosition = 2
+            spark.name = "spark"
+            root.addChild(spark)
+            spark.run(.repeatForever(.sequence([
+                .group([.scale(to: 1.35, duration: 0.16), .fadeAlpha(to: 1, duration: 0.16)]),
+                .group([.scale(to: 0.55, duration: 0.2), .fadeAlpha(to: 0.3, duration: 0.2)]),
+            ])))
+        }
         if kind == .board {
             let stripe = SKShapeNode(rectOf: CGSize(width: 22, height: 8), cornerRadius: 2)
             stripe.fillColor = Palette.uiHotPink
@@ -526,13 +553,15 @@ final class GameScene: SKScene {
             body.zRotation = CGFloat(object.step - 1) * 0.4
         }
         if object.kind == .goldenShell {
-            node.childNode(withName: "spec")?.alpha = object.step % 2 == 0 ? 1 : 0.35
+            node.childNode(withName: "spec")?.alpha = object.step % 2 == 0 ? 1 : 0.25
+            node.childNode(withName: "spark")?.zRotation = CGFloat(object.step) * .pi / 3
         }
         if objectSteps[object.id] != object.step {
             objectSteps[object.id] = object.step
             node.removeAction(forKey: "squash")
-            let squish = SKAction.scaleX(to: itemScale * 1.15, y: itemScale * 0.85, duration: 0.04)
-            let back = SKAction.scale(to: itemScale, duration: 0.05)
+            let scale = baseScale(object.kind)
+            let squish = SKAction.scaleX(to: scale * 1.15, y: scale * 0.85, duration: 0.04)
+            let back = SKAction.scale(to: scale, duration: 0.05)
             node.run(.sequence([squish, back]), withKey: "squash")
         }
     }
@@ -708,12 +737,32 @@ final class GameScene: SKScene {
         crack.run(.sequence([.wait(forDuration: 0.3), .fadeOut(withDuration: 0.15), .removeFromParent()]))
     }
 
+    private func baseScale(_ kind: ObjectKind) -> CGFloat {
+        kind == .goldenShell ? itemScale * 1.45 : itemScale
+    }
+
+    private func sparklePath() -> CGPath {
+        let path = CGMutablePath()
+        let points = [
+            CGPoint(x: 0, y: 16), CGPoint(x: 3, y: 3),
+            CGPoint(x: 16, y: 0), CGPoint(x: 3, y: -3),
+            CGPoint(x: 0, y: -16), CGPoint(x: -3, y: -3),
+            CGPoint(x: -16, y: 0), CGPoint(x: -3, y: 3),
+        ]
+        path.move(to: points[0])
+        for point in points.dropFirst() {
+            path.addLine(to: point)
+        }
+        path.closeSubpath()
+        return path
+    }
+
     private func splash(at point: CGPoint, golden: Bool) {
         let count = golden ? 24 : 12
         for index in 0..<count {
-            let drop = SKShapeNode(circleOfRadius: golden && index % 4 == 0 ? 4 : 3)
-            if golden && index % 4 == 0 {
-                drop.fillColor = Palette.uiGold
+            let drop = SKShapeNode(circleOfRadius: golden && index % 3 == 0 ? 5 : 3)
+            if golden {
+                drop.fillColor = index % 3 == 0 ? Palette.uiCream : Palette.uiGold
             } else {
                 drop.fillColor = index % 2 == 0 ? Palette.uiCream : Palette.uiTeal
             }

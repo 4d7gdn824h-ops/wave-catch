@@ -39,6 +39,7 @@ final class WaveCatchUITests: XCTestCase {
                 sawRing = true
             }
             if !sawGolden && app.staticTexts["sawGolden"].label == "1" {
+                Thread.sleep(forTimeInterval: 0.7)
                 save("04-golden")
                 sawGolden = true
             }
@@ -67,9 +68,15 @@ final class WaveCatchUITests: XCTestCase {
         }
 
         let niceDeadline = started.addingTimeInterval(25)
-        while Date() < niceDeadline && app.staticTexts["sawNice"].label != "1" {
-            Thread.sleep(forTimeInterval: 0.2)
+        var sawNiceText = false
+        while Date() < niceDeadline && !sawNiceText {
+            if app.staticTexts["callout"].label == "Nice!" {
+                sawNiceText = true
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.1)
         }
+        XCTAssertTrue(sawNiceText, "Nice! was not on screen")
         XCTAssertEqual(app.staticTexts["sawNice"].label, "1", "Nice! did not appear")
         let pitchDeadline = Date().addingTimeInterval(2)
         while Date() < pitchDeadline && number(in: app.staticTexts["maxPitch"]) < 3 {
@@ -80,7 +87,7 @@ final class WaveCatchUITests: XCTestCase {
         let again = app.buttons["playAgainButton"]
         let overDeadline = started.addingTimeInterval(55)
         while Date() < overDeadline && !again.exists {
-            Thread.sleep(forTimeInterval: 0.3)
+            Thread.sleep(forTimeInterval: 0.1)
         }
         XCTAssertTrue(again.waitForExistence(timeout: 2), "game over did not appear")
         XCTAssertEqual(app.staticTexts["sawBigWave"].label, "1", "Big Wave did not start")
@@ -88,15 +95,13 @@ final class WaveCatchUITests: XCTestCase {
 
         let newBest = app.staticTexts["newBest"]
         XCTAssertTrue(newBest.waitForExistence(timeout: 4), "NEW BEST was not on the game over card")
-        Thread.sleep(forTimeInterval: 1.5)
-        save("05-gameover")
-        XCTAssertTrue(newBest.exists)
-        XCTAssertEqual(newBest.label, "NEW BEST")
-
         let enabled = NSPredicate(format: "isEnabled == true")
         expectation(for: enabled, evaluatedWith: again)
-        waitForExpectations(timeout: 4)
+        waitForExpectations(timeout: 2)
+        Thread.sleep(forTimeInterval: 0.15)
+        save("05-gameover")
         again.tap()
+        XCTAssertEqual(newBest.label, "NEW BEST")
 
         let backToZero = NSPredicate(format: "label == '0'")
         expectation(for: backToZero, evaluatedWith: app.staticTexts["score"])

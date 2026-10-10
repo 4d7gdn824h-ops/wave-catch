@@ -156,7 +156,10 @@ jobs:
             exit "$BAR"
           fi
           mkdir -p /tmp/wavecatch-proof "$GITHUB_WORKSPACE/docs/proof"
-          rm -f /tmp/wavecatch-proof/record-start /tmp/wavecatch-proof/record-stop /tmp/wavecatch-proof/record-cancel /tmp/wavecatch-proof/record.pid /tmp/wavecatch-proof/raw.mp4
+          rm -f /tmp/wavecatch-proof/record-start /tmp/wavecatch-proof/record-stop /tmp/wavecatch-proof/record-cancel /tmp/wavecatch-proof/record.pid /tmp/wavecatch-proof/raw.mp4 /tmp/wavecatch-proof/audio.log
+          rm -f "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
+          xcrun simctl spawn "${{ steps.sim.outputs.udid }}" log stream --style compact --predicate 'eventMessage CONTAINS "WCAUDIO" OR composedMessage CONTAINS "WCAUDIO"' > /tmp/wavecatch-proof/audio.log 2>&1 &
+          LOG_PID=$!
           (
             deadline=$((SECONDS + 180))
             while [ ! -f /tmp/wavecatch-proof/record-start ] && [ ! -f /tmp/wavecatch-proof/record-cancel ]; do
@@ -171,6 +174,7 @@ jobs:
               exit 0
             fi
             echo "recorder: menu is up"
+            python3 -c 'import time; open("/tmp/wavecatch-proof/record-start.time","w").write(f"{time.time():.6f}\n")'
             xcrun simctl io "${{ steps.sim.outputs.udid }}" recordVideo --codec h264 --force /tmp/wavecatch-proof/raw.mp4 &
             echo $! > /tmp/wavecatch-proof/record.pid
             while [ ! -f /tmp/wavecatch-proof/record-stop ] && [ ! -f /tmp/wavecatch-proof/record-cancel ]; do
@@ -200,35 +204,49 @@ jobs:
           STATUS=${PIPESTATUS[0]}
           touch /tmp/wavecatch-proof/record-cancel
           wait "$WATCH_PID" || true
+          if [ -n "${LOG_PID:-}" ]; then
+            kill -INT "$LOG_PID" || true
+            wait "$LOG_PID" || true
+          fi
           sleep 1
+          echo "audio log lines: $(wc -l < /tmp/wavecatch-proof/audio.log 2>/dev/null || echo 0)"
           bash "$GITHUB_WORKSPACE/Scripts/compress-proof.sh" /tmp/wavecatch-proof/raw.mp4 /tmp/wavecatch-proof/silent.mp4
           COMPRESS=$?
           if [ "$COMPRESS" -eq 0 ]; then
-            CONTAINER=$(xcrun simctl get_app_container "${{ steps.sim.outputs.udid }}" com.example.wavecatch data || true)
-            AUDIO_LOG=/tmp/wavecatch-proof/xcodebuild.log
-            if [ -n "$CONTAINER" ]; then
-              FOUND=$(find "$CONTAINER" -name wavecatch-audio.log -print -quit || true)
-              if [ -n "$FOUND" ]; then
-                AUDIO_LOG="$FOUND"
-              fi
+            if [ ! -s /tmp/wavecatch-proof/audio.log ]; then
+              echo "audio log is empty"
+              COMPRESS=1
+            else
+              python3 -m venv /tmp/wavecatch-venv
+              /tmp/wavecatch-venv/bin/pip install numpy
+              /tmp/wavecatch-venv/bin/python3 "$GITHUB_WORKSPACE/Scripts/mux-proof-audio.py" \
+                /tmp/wavecatch-proof/silent.mp4 \
+                /tmp/wavecatch-proof/audio.log \
+                /tmp/wavecatch-proof/record-start.time \
+                "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
+              COMPRESS=$?
             fi
-            echo "audio log: $AUDIO_LOG"
-            wc -l "$AUDIO_LOG" || true
-            python3 -m venv /tmp/wavecatch-venv
-            /tmp/wavecatch-venv/bin/pip install numpy
-            /tmp/wavecatch-venv/bin/python3 "$GITHUB_WORKSPACE/Scripts/mux-proof-audio.py" \
-              /tmp/wavecatch-proof/silent.mp4 \
-              "$AUDIO_LOG" \
-              /tmp/wavecatch-proof/record-start.time \
-              "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
-            COMPRESS=$?
+          fi
+          if [ "$COMPRESS" -eq 0 ]; then
+            ffprobe -hide_banner -show_streams "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
+            CODEC=$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of csv=p=0 "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4" || true)
+            echo "audio codec: ${CODEC:-none}"
+            if [ "$CODEC" != "aac" ]; then
+              echo "gameplay.mp4 is missing an AAC audio stream"
+              COMPRESS=1
+            fi
+          fi
+          if [ "$COMPRESS" -ne 0 ]; then
+            rm -f "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
           fi
           cp -f /tmp/wavecatch-proof/*.png "$GITHUB_WORKSPACE/docs/proof/" || true
           for shot in "$GITHUB_WORKSPACE"/docs/proof/*.png; do
             W=$(sips -g pixelWidth "$shot" | awk '/pixelWidth/{print $2}')
             H=$(sips -g pixelHeight "$shot" | awk '/pixelHeight/{print $2}')
             if [ -n "$W" ] && [ -n "$H" ] && [ "$H" -gt "$W" ]; then
-              sips -r 90 "$shot" >/dev/null
+              sips -r 270 "$shot" >/dev/null
+            elif [ -n "$W" ] && [ -n "$H" ]; then
+              sips -r 180 "$shot" >/dev/null
             fi
           done
           ls -lh "$GITHUB_WORKSPACE/docs/proof" || true

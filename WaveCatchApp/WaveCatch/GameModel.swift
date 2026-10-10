@@ -290,7 +290,13 @@ final class GameModel: ObservableObject {
                 sawBigWave = true
                 tones.play("whoosh", pan: 0, volume: 0.7)
                 tones.duck()
-                showCallout("BIG WAVE!", tier: 4)
+                if callout == "Nice!" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+                        self?.showCallout("BIG WAVE!", tier: 4)
+                    }
+                } else {
+                    showCallout("BIG WAVE!", tier: 4)
+                }
             case .bigWaveStart:
                 tones.setWave(true)
             case .bigWaveEnd:

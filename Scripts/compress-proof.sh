@@ -1,9 +1,7 @@
 #!/bin/bash
 # simctl recordVideo stores the portrait framebuffer (1290x2796) even when the
-# app is landscape. That buffer is 90 degrees clockwise from the upright
-# screenshots (those PNGs needed the other direction, a 180 degree flip).
-# transpose=2 turns it counter-clockwise so the sky matches the PNGs, then
-# scale fills 1280x590 with no pad.
+# app is landscape. transpose=2 rotates it 90 degrees counter-clockwise so the
+# sky stays at the top, then scale fills a landscape frame at least 1280x590.
 set -euo pipefail
 
 if [[ $# -ne 2 ]]; then
@@ -40,8 +38,8 @@ pix=$(ffprobe -v error -select_streams v:0 -show_entries stream=pix_fmt -of csv=
 duration=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$output")
 echo "proof video ${width}x${height} ${pix} duration ${duration}s ${size} bytes"
 
-if [[ "$width" != "1280" || "$height" != "590" ]]; then
-  echo "expected 1280x590, got ${width}x${height}" >&2
+if [[ "$width" -lt 1280 || "$height" -lt 590 || "$width" -le "$height" ]]; then
+  echo "expected landscape at least 1280x590, got ${width}x${height}" >&2
   exit 1
 fi
 if [[ "$pix" != "yuv420p" ]]; then
