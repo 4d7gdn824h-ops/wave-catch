@@ -282,12 +282,7 @@ final class PoolArt {
     }
 
     private func rotation(_ side: Side) -> CGFloat {
-        switch side {
-        case .north: return 0
-        case .east: return -.pi / 2
-        case .south: return .pi
-        case .west: return .pi / 2
-        }
+        CGFloat(PoolInput.noseRotation(facing: side))
     }
 
     private func offset(_ side: Side, distance: CGFloat) -> CGPoint {

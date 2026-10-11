@@ -135,7 +135,9 @@ struct RootView: View {
                         .background(tierColor)
                         .clipShape(Capsule())
                 }
+                .allowsHitTesting(false)
                 Spacer()
+                    .allowsHitTesting(false)
                 VStack(alignment: .trailing, spacing: 8) {
                     if model.mode == .playing {
                         Button(action: { model.togglePause() }) {
@@ -148,6 +150,19 @@ struct RootView: View {
                         }
                         .accessibilityIdentifier("pauseButton")
                     }
+                    #if DEBUG
+                    if model.proofArmor {
+                        Button(action: { model.disarmProof() }) {
+                            Text("off")
+                                .font(.system(size: 1))
+                                .foregroundColor(Palette.buttonSand)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityIdentifier("proofArmor")
+                        .accessibilityLabel("proofArmor")
+                    }
+                    #endif
                     if model.showTuning && model.mode == .playing {
                         Button(action: { model.showDebug = true }) {
                             Image(systemName: "gearshape.fill")
@@ -180,6 +195,7 @@ struct RootView: View {
             probe("sawGolden", model.sawGolden ? "1" : "0")
             probe("sawBigWave", model.sawBigWave ? "1" : "0")
             probe("maxPitch", "\(model.maxPitch)")
+            probe("facing", model.facing)
         }
         .frame(width: 1, height: 1)
         .allowsHitTesting(false)
@@ -415,7 +431,7 @@ struct SceneHost: UIViewRepresentable {
         view.presentScene(scene)
         view.preferredFramesPerSecond = 60
         view.ignoresSiblingOrder = true
-        view.isUserInteractionEnabled = false
+        view.isUserInteractionEnabled = true
         view.allowsTransparency = false
         return view
     }

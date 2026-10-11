@@ -42,6 +42,8 @@ public enum GameEvent: Equatable {
 
 public enum Feel {
     public static let lateGrace = 0.080
+    /// Pool turns are easier to land late. Ramp sessions keep `lateGrace`.
+    public static let poolLateGrace = 0.150
     public static let stingConfirm = 0.040
     public static let dodgeMemory = 0.150
     public static let mercySkipTicks = 2

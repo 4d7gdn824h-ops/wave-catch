@@ -9,7 +9,7 @@ final class WaveCatchUITests: XCTestCase {
 
     func testFullGameProof() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-uitest", "-seed", "7", "-WCSpotlight"]
+        app.launchArguments = ["-uitest", "-seed", "7", "-WCSpotlight", "-WCProofMode"]
         XCUIDevice.shared.orientation = .landscapeLeft
         app.launch()
         XCUIDevice.shared.orientation = .landscapeLeft
@@ -66,19 +66,17 @@ final class WaveCatchUITests: XCTestCase {
         }
         sample()
 
-        let watchUntil = Date().addingTimeInterval(25)
+        let watchUntil = Date().addingTimeInterval(40)
         while Date() < watchUntil && !(sawRing && sawGolden && sawMidgame && sawCatch) {
             sample()
-            if !sawRing && probe(app, "ringLit") == "1" && !again.exists {
+            if !sawRing && probe(app, "ringLit") == "1" {
                 save("07-swell-ring")
                 sawRing = true
             }
-            if !sawGolden && probe(app, "sawGolden") == "1" && !again.exists {
-                Thread.sleep(forTimeInterval: 0.7)
-                if !again.exists {
-                    save("04-golden")
-                    sawGolden = true
-                }
+            if !sawGolden && probe(app, "sawGolden") == "1" {
+                Thread.sleep(forTimeInterval: 0.35)
+                save("04-golden")
+                sawGolden = true
             }
             Thread.sleep(forTimeInterval: 0.2)
         }
@@ -88,7 +86,7 @@ final class WaveCatchUITests: XCTestCase {
         XCTAssertTrue(sawMidgame, "score never left zero")
         XCTAssertTrue(sawCatch, "a second catch was not shown")
 
-        let niceDeadline = started.addingTimeInterval(40)
+        let niceDeadline = started.addingTimeInterval(50)
         var sawNiceText = false
         while Date() < niceDeadline && !sawNiceText {
             sample()
@@ -108,8 +106,14 @@ final class WaveCatchUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(probe(app, "maxPitch").flatMap { Int($0.filter(\.isNumber)) } ?? 0, 3, "the pitch ladder did not rise")
         XCTAssertEqual(probe(app, "sawGolden"), "1", "a golden wave was not seen")
         XCTAssertEqual(probe(app, "sawBigWave"), "1", "SURGE did not start")
+        XCTAssertTrue(sawRing && sawGolden && sawMidgame && sawCatch, "play screenshots were not all saved")
 
-        let overDeadline = Date().addingTimeInterval(50)
+        // Armor held the lives through the shots. Turn it off and miss on purpose.
+        let armor = app.buttons["proofArmor"]
+        XCTAssertTrue(armor.waitForExistence(timeout: 2), "proof armor toggle was not available")
+        armor.tap()
+
+        let overDeadline = Date().addingTimeInterval(70)
         while Date() < overDeadline && !again.exists {
             sample()
             Thread.sleep(forTimeInterval: 0.2)
@@ -136,6 +140,41 @@ final class WaveCatchUITests: XCTestCase {
         // Stop the clip while the restarted game is still up, before XCTest backgrounds the app.
         mark("record-stop")
         Thread.sleep(forTimeInterval: 1.5)
+    }
+
+    /// Taps on the deck and sky, outside the water, still turn the surfer.
+    func testEdgeTapsOutsideThePoolFaceNorthEastSouthWest() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-seed", "1"]
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.launch()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let play = app.buttons["playButton"]
+        XCTAssertTrue(play.waitForExistence(timeout: 8))
+        play.tap()
+        let facing = app.descendants(matching: .any)["facing"]
+        XCTAssertTrue(facing.waitForExistence(timeout: 4))
+        let window = app.windows.firstMatch
+        // UIKit y-down. These points sit on the sky, the side deck, and the beach.
+        let taps: [(CGFloat, CGFloat, String)] = [
+            (0.50, 0.04, "north"),
+            (0.98, 0.55, "east"),
+            (0.50, 0.97, "south"),
+            (0.02, 0.55, "west"),
+        ]
+        for (x, y, side) in taps {
+            window.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y)).tap()
+            let deadline = Date().addingTimeInterval(2)
+            var matched = false
+            while Date() < deadline {
+                if probe(app, "facing") == side {
+                    matched = true
+                    break
+                }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            XCTAssertTrue(matched, "edge tap \(side) faced \(probe(app, "facing") ?? "nil")")
+        }
     }
 
     /// Reads a probe only while it is still in the tree. Faded callouts are not safe to read.

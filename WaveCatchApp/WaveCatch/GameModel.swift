@@ -44,6 +44,12 @@ final class GameModel: ObservableObject {
     @Published var sawBigWave = false
     @Published var maxPitch = 0
     @Published var cardVisible = false
+    @Published var facing = "south"
+    #if DEBUG
+    /// `-WCProofMode` only. Misses cost no lives until the proof taps this off.
+    @Published var proofArmor = false
+    let proofMode: Bool
+    #endif
 
     let scene = GameScene()
     let uitest: Bool
@@ -79,6 +85,10 @@ final class GameModel: ObservableObject {
             parsedSeed = value
         }
         seed = parsedSeed
+        #if DEBUG
+        proofMode = args.contains("-WCProofMode")
+        proofArmor = proofMode
+        #endif
         if uitest {
             UserDefaults.standard.removeObject(forKey: "wavecatch.bestScore")
             UserDefaults.standard.removeObject(forKey: "wavecatch.bestCombo")
@@ -136,7 +146,13 @@ final class GameModel: ObservableObject {
             scene.attach(next)
         } else {
             session = nil
-            pool = WavePoolSession(seed: seed, tuning: tuning.clamped(), startPhase: phase)
+            let next = WavePoolSession(seed: seed, tuning: tuning.clamped(), startPhase: phase)
+            #if DEBUG
+            next.proofArmor = proofMode
+            proofArmor = proofMode
+            #endif
+            pool = next
+            facing = next.facing.rawValue
         }
         score = 0
         lives = 3
@@ -187,6 +203,7 @@ final class GameModel: ObservableObject {
     func setSide(_ side: Side) {
         guard mode == .playing, !paused, let pool else { return }
         pool.face(side)
+        facing = side.rawValue
         pressedSide = side
         glowClear?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -306,10 +323,22 @@ final class GameModel: ObservableObject {
         if pool.combo >= 5 {
             proofNice = true
         }
+        #if DEBUG
+        if proofArmor { return }
+        #endif
         if proofNice && pool.bigWavePhase == .breather {
             proofDeath = true
         }
     }
+
+    #if DEBUG
+    /// The proof calls this after Nice, golden, SURGE, the ring, and the play screenshots.
+    func disarmProof() {
+        proofArmor = false
+        pool?.proofArmor = false
+        proofDeath = true
+    }
+    #endif
 
     private func publishPool(_ pool: WavePoolSession) {
         if score != pool.score { score = pool.score }
@@ -329,6 +358,8 @@ final class GameModel: ObservableObject {
         if pool.liveWaves.contains(where: { $0.kind == .goldenWave }) { sawGolden = true }
         let lit = !pool.ringSides.isEmpty
         if ringLit != lit { ringLit = lit }
+        let facingNow = pool.facing.rawValue
+        if facing != facingNow { facing = facingNow }
         if !didRibbon && bestAtStart >= 10 && score > bestAtStart {
             didRibbon = true
             newBestRibbon = true

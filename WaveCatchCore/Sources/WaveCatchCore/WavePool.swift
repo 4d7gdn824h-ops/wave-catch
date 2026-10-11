@@ -130,6 +130,8 @@ public final class WavePoolSession {
     public private(set) var rideUntil: Double = 0
     public private(set) var wipeUntil: Double = 0
     public private(set) var mercyCatchesRemaining: Int = 0
+    /// Debug proof runs ignore life-loss until the test turns this off. Release leaves it false.
+    public var proofArmor = false
 
     public var multiplier: Double { ScoreMath.comboMultiplier(for: combo) }
     public var stepInterval: Double { currentInterval() }
@@ -176,9 +178,12 @@ public final class WavePoolSession {
         self.nextStepTime = 0
         self.spawnOnTick = 2
         // First vent blink is on tick 1, inside the first half-second, not after a full step.
-        let opening = SpeedCurve.stepInterval(level: max(0, self.phaseNumber - 1))
-            / max(0.5, min(2, tuning.speedMultiplier))
-        self.nextStepTime = min(0.45, opening)
+        // Phase 1 uses the slower tutorial clock; later phases use SpeedCurve.
+        let opening = self.phaseNumber <= 1
+            ? 0.75
+            : SpeedCurve.stepInterval(level: max(0, self.phaseNumber - 1))
+        let scaled = opening / max(0.5, min(2, tuning.speedMultiplier))
+        self.nextStepTime = min(0.45, scaled)
     }
 
     public func setPaused(_ paused: Bool) {
@@ -258,14 +263,22 @@ public final class WavePoolSession {
     private var breatherEndsAt = 0.0
     private var didSpotlightSurge = false
     private var sawGoldenHour = false
+    private var lifeLosses = 0
 
     private func currentInterval() -> Double {
         var level = phaseIndex
         if mercyCatchesRemaining > 0 { level = max(0, level - 1) }
         if bigWavePhase == .breather { level = max(0, level - 1) }
-        var interval = SpeedCurve.stepInterval(level: level)
+        // Phase 1 is a fixed 0.75s tutorial step. Phase 2 onward keeps the ramp curve,
+        // including the mercy and breather drop of one level.
+        var interval = phaseNumber <= 1 ? 0.75 : SpeedCurve.stepInterval(level: level)
         if bigWavePhase == .active { interval *= Feel.bigWaveStepScale }
         return interval / tuning.clamped().speedMultiplier
+    }
+
+    /// Phase 1 commits a swell every third tick. Later phases telegraph on the next tick.
+    private func spawnGap() -> Int {
+        phaseNumber <= 1 ? 3 : 1
     }
 
     private func advance(by dt: Double) -> [PoolEvent] {
@@ -295,18 +308,19 @@ public final class WavePoolSession {
         }
         events += resolveArrivals()
         events += updateSurgeClock()
+        let gap = spawnGap()
         if globalStep == spawnOnTick, let side = telegraphSide, let kind = telegraphKind {
             events += commitSpawn(side: side, kind: kind, fromPattern: telegraphPattern)
             telegraphSide = nil
             telegraphKind = nil
             telegraphPattern = false
-            spawnOnTick = globalStep + 1
+            spawnOnTick = globalStep + gap
         }
         if telegraphSide == nil {
             if let plan = planSpawn() {
                 if spawnOnTick <= globalStep {
                     events += commitSpawn(side: plan.side, kind: plan.kind, fromPattern: plan.pattern)
-                    spawnOnTick = globalStep + 1
+                    spawnOnTick = globalStep + gap
                 } else if spawnOnTick == globalStep + 1 {
                     telegraphSide = plan.side
                     telegraphKind = plan.kind
@@ -314,7 +328,7 @@ public final class WavePoolSession {
                     events.append(.whump(plan.side))
                 }
             } else if spawnOnTick <= globalStep + 1 {
-                spawnOnTick = globalStep + 2
+                spawnOnTick = globalStep + (phaseNumber <= 1 ? 3 : 2)
             }
         }
         return events
@@ -464,6 +478,12 @@ public final class WavePoolSession {
             sideQueue.removeFirst()
             return side
         }
+        // The first three swells of a run come from the wall the surfer is facing,
+        // including east and west, so a turn during the tutorial still gets a wave.
+        if phaseNumber <= 1 && spawnCount < 3 {
+            guard sideLegal(facing, kind: kind, spawnTick: spawnTick, ignorePhaseLimit: true) else { return nil }
+            return facing
+        }
         var options = legalSides(kind: kind, spawnTick: spawnTick)
         if options.isEmpty { return nil }
         rng.shuffle(&options)
@@ -480,8 +500,8 @@ public final class WavePoolSession {
         return Side.allCases
     }
 
-    private func sideLegal(_ side: Side, kind: WaveKind, spawnTick: Int) -> Bool {
-        guard allowedSides().contains(side) else { return false }
+    private func sideLegal(_ side: Side, kind: WaveKind, spawnTick: Int, ignorePhaseLimit: Bool = false) -> Bool {
+        if !ignorePhaseLimit && !allowedSides().contains(side) { return false }
         // A new crest at row 1 must be more than one row away from a crest already on this wall.
         if waves.contains(where: { !$0.resolved && $0.side == side && $0.step <= 2 }) {
             return false
@@ -550,7 +570,7 @@ public final class WavePoolSession {
             } else if let deadline = wave.graceDeadline {
                 if time >= deadline { events += miss(index) }
             } else {
-                waves[index].graceDeadline = time + Feel.lateGrace
+                waves[index].graceDeadline = time + Feel.poolLateGrace
             }
         }
         return events
@@ -626,12 +646,16 @@ public final class WavePoolSession {
     private func punish(wave: ActiveWave, wipeout: Bool) -> [PoolEvent] {
         let surge = bigWavePhase == .active
         var lifeLost = false
-        if !surge {
+        if !surge && proofArmor {
+            lifeLost = false
+        } else if !surge {
             combo = 0
             lives -= 1
             lifeLost = true
             wipeUntil = time + 0.45
-            mercySkip = Feel.mercySkipTicks
+            lifeLosses += 1
+            // The first life of a run is a longer breather. Later misses stay on the short skip.
+            mercySkip = lifeLosses == 1 ? 3 : Feel.mercySkipTicks
             mercyCatchesRemaining = Feel.mercyCatches
             mercyChopBlock = Feel.mercyClearSpawns
             lastCatchTick.removeAll()

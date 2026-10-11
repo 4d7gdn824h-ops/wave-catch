@@ -44,6 +44,22 @@ final class GameScene: SKScene {
         addChild(world)
         world.addChild(surfer)
         drawSurfer()
+        isUserInteractionEnabled = true
+    }
+
+    /// Diagonal zones cover the whole scene, including the deck and the sky strip.
+    /// HUD buttons sit above the view and keep the touch.
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let model, !model.legacyRamps else { return }
+        guard let touch = touches.first else { return }
+        let point = touch.location(in: self)
+        let side = PoolInput.side(
+            x: Double(point.x),
+            y: Double(point.y),
+            width: Double(size.width),
+            height: Double(size.height)
+        )
+        model.setSide(side)
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -836,6 +852,25 @@ final class GameScene: SKScene {
 
     private func drawSurfer() {
         surfer.removeAllChildren()
+        // Nose is local +y and sits behind the body, so the tip leads the head.
+        // PoolInput.noseRotation turns that tip toward the faced wall.
+        let board = SKShapeNode(path: boardPath())
+        board.fillColor = Palette.uiHotPink
+        board.strokeColor = Palette.uiPlum
+        board.lineWidth = 3
+        board.position = .zero
+        board.zRotation = 0
+        board.name = "board"
+        surfer.addChild(board)
+        let bolt = SKShapeNode(path: lightningPath())
+        bolt.strokeColor = Palette.uiGold
+        bolt.lineWidth = 2
+        bolt.fillColor = .clear
+        bolt.position = CGPoint(x: 0, y: 58)
+        bolt.zRotation = .pi / 2
+        bolt.name = "bolt"
+        surfer.addChild(bolt)
+
         let hair = SKShapeNode(ellipseOf: CGSize(width: 46, height: 36))
         hair.fillColor = Palette.uiHair
         hair.strokeColor = Palette.uiPlum
@@ -856,23 +891,6 @@ final class GameScene: SKScene {
         torso.lineWidth = 3
         torso.position = CGPoint(x: 0, y: 16)
         surfer.addChild(torso)
-
-        let board = SKShapeNode(rectOf: CGSize(width: 78, height: 16), cornerRadius: 8)
-        board.fillColor = Palette.uiHotPink
-        board.strokeColor = Palette.uiPlum
-        board.lineWidth = 3
-        board.position = CGPoint(x: 0, y: -18)
-        board.zRotation = -0.08
-        board.name = "board"
-        surfer.addChild(board)
-        let bolt = SKShapeNode(path: lightningPath())
-        bolt.strokeColor = Palette.uiGold
-        bolt.lineWidth = 2
-        bolt.fillColor = .clear
-        bolt.position = CGPoint(x: 0, y: -18)
-        bolt.zRotation = -0.08
-        bolt.name = "bolt"
-        surfer.addChild(bolt)
 
         let arm = SKShapeNode(rectOf: CGSize(width: 10, height: 28), cornerRadius: 5)
         arm.fillColor = Palette.uiSkin
@@ -923,6 +941,20 @@ final class GameScene: SKScene {
         case .lowerLeft: return -0.22
         case .lowerRight: return 0.22
         }
+    }
+
+    /// Pointed board. The tip sits past the head, on local +y.
+    private func boardPath() -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 0, y: 78))
+        path.addQuadCurve(to: CGPoint(x: 9, y: 46), control: CGPoint(x: 12, y: 68))
+        path.addLine(to: CGPoint(x: 9, y: -6))
+        path.addQuadCurve(to: CGPoint(x: 0, y: -24), control: CGPoint(x: 9, y: -18))
+        path.addQuadCurve(to: CGPoint(x: -9, y: -6), control: CGPoint(x: -9, y: -18))
+        path.addLine(to: CGPoint(x: -9, y: 46))
+        path.addQuadCurve(to: CGPoint(x: 0, y: 78), control: CGPoint(x: -12, y: 68))
+        path.closeSubpath()
+        return path
     }
 
     private func lightningPath() -> CGPath {

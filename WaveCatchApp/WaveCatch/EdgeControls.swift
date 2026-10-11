@@ -18,6 +18,8 @@ struct EdgeControls: View {
                 }
             }
             .accessibilityElement(children: .contain)
+            // The scene owns the zones. Markers stay visible to XCUITest and do not eat taps.
+            .allowsHitTesting(false)
         }
     }
 
