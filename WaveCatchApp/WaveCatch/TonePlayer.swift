@@ -88,12 +88,16 @@ final class TonePlayer {
         effects.removeAll { !$0.isPlaying }
     }
 
-    func play(_ name: String, pan: Float, volume: Float) {
+    func play(_ name: String, pan: Float, volume: Float, rate: Float = 1) {
         guard effectsOn, volume > 0 else { return }
         guard let url = locate(name, ext: "m4a") else { return }
         guard let player = try? AVAudioPlayer(contentsOf: url) else { return }
         player.pan = max(-1, min(1, pan))
         player.volume = volume
+        if abs(rate - 1) > 0.01 {
+            player.enableRate = true
+            player.rate = max(0.5, min(2, rate))
+        }
         player.prepareToPlay()
         player.play()
         effects.append(player)

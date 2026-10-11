@@ -20,6 +20,8 @@ final class GameModel: ObservableObject {
     @Published var safeLane = "none"
     @Published var jellyfishOnScreen = false
     @Published var pressedLane: Lane?
+    @Published var pressedSide: Side?
+    @Published var lifePips = 0
     @Published var showDebug = false
     @Published var showTuning = false
     @Published var showLicenses = false
@@ -42,12 +44,21 @@ final class GameModel: ObservableObject {
     @Published var sawBigWave = false
     @Published var maxPitch = 0
     @Published var cardVisible = false
+    @Published var facing = "south"
+    #if DEBUG
+    /// `-WCProofMode` only. Misses cost no lives until the proof taps this off.
+    @Published var proofArmor = false
+    let proofMode: Bool
+    #endif
 
     let scene = GameScene()
     let uitest: Bool
     let seed: UInt64
+    /// Ramp chutes stay available for debugging. The shipping mode is the pool.
+    let legacyRamps: Bool
 
     private(set) var session: GameSession?
+    private(set) var pool: WavePoolSession?
     private let store = ScoreStore()
     private let haptics = HapticPlayer()
     private let tones = TonePlayer()
@@ -68,11 +79,16 @@ final class GameModel: ObservableObject {
     init() {
         let args = ProcessInfo.processInfo.arguments
         uitest = args.contains("-uitest") || args.contains("-autoplayDemo")
+        legacyRamps = args.contains("-WCLegacyRamps")
         var parsedSeed: UInt64 = uitest ? 7 : UInt64.random(in: 1...UInt64.max)
         if let index = args.firstIndex(of: "-seed"), index + 1 < args.count, let value = UInt64(args[index + 1]) {
             parsedSeed = value
         }
         seed = parsedSeed
+        #if DEBUG
+        proofMode = args.contains("-WCProofMode")
+        proofArmor = proofMode
+        #endif
         if uitest {
             UserDefaults.standard.removeObject(forKey: "wavecatch.bestScore")
             UserDefaults.standard.removeObject(forKey: "wavecatch.bestCombo")
@@ -84,10 +100,17 @@ final class GameModel: ObservableObject {
         }
         bestScore = store.bestScore
         showTuning = args.contains("-showTuning")
+        let spotlight = uitest || args.contains("-WCSpotlight")
+        if spotlight {
+            tuning.spotlightGoldenWave = true
+            tuning.spotlightSurge = true
+        }
         if uitest {
             tuning.speedMultiplier = 1
             tuning.spotlightGoldenShell = true
             tuning.spotlightBigWave = true
+            tuning.spotlightGoldenWave = true
+            tuning.spotlightSurge = true
             startPhase = 1
         }
         scene.model = self
@@ -115,9 +138,22 @@ final class GameModel: ObservableObject {
 
     func startGame() {
         againUnlock?.cancel()
-        let next = GameSession(seed: seed, tuning: tuning.clamped(), startPhase: min(10, max(1, startPhase)))
-        session = next
-        scene.attach(next)
+        let phase = min(10, max(1, startPhase))
+        if legacyRamps {
+            pool = nil
+            let next = GameSession(seed: seed, tuning: tuning.clamped(), startPhase: phase)
+            session = next
+            scene.attach(next)
+        } else {
+            session = nil
+            let next = WavePoolSession(seed: seed, tuning: tuning.clamped(), startPhase: phase)
+            #if DEBUG
+            next.proofArmor = proofMode
+            proofArmor = proofMode
+            #endif
+            pool = next
+            facing = next.facing.rawValue
+        }
         score = 0
         lives = 3
         combo = 0
@@ -131,6 +167,9 @@ final class GameModel: ObservableObject {
         safeLane = "none"
         jellyfishOnScreen = false
         ringLit = false
+        pressedLane = nil
+        pressedSide = nil
+        lifePips = 0
         callout = ""
         newBestRibbon = false
         sawNice = false
@@ -161,29 +200,64 @@ final class GameModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
     }
 
+    func setSide(_ side: Side) {
+        guard mode == .playing, !paused, let pool else { return }
+        pool.face(side)
+        facing = side.rawValue
+        pressedSide = side
+        glowClear?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            if self?.pressedSide == side { self?.pressedSide = nil }
+        }
+        glowClear = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20, execute: work)
+    }
+
     func togglePause() {
-        guard mode == .playing, let session else { return }
-        paused.toggle()
-        session.setPaused(paused)
+        guard mode == .playing else { return }
+        if legacyRamps {
+            guard let session else { return }
+            paused.toggle()
+            session.setPaused(paused)
+        } else {
+            guard let pool else { return }
+            paused.toggle()
+            pool.setPaused(paused)
+        }
     }
 
     func advance(dt: Double) {
         tones.update(dt: dt)
-        guard mode == .playing, !paused, let session else { return }
-        steerProof(session)
-        session.tuning = tuning.clamped()
-        let now = Date().timeIntervalSince1970
-        slowVisual = now < slowUntil
-        let sim = slowVisual ? dt * 0.5 : dt
-        let events = session.tick(dt: sim)
-        publish(session)
-        react(to: events, session: session)
-        noteProof(session)
-        scene.present(events, session: session)
+        guard mode == .playing, !paused else { return }
+        if legacyRamps {
+            guard let session else { return }
+            steerProof(session)
+            session.tuning = tuning.clamped()
+            let now = Date().timeIntervalSince1970
+            slowVisual = now < slowUntil
+            let sim = slowVisual ? dt * 0.5 : dt
+            let events = session.tick(dt: sim)
+            publish(session)
+            react(to: events, session: session)
+            noteProof(session)
+            scene.present(events, session: session)
+        } else if let pool {
+            steerPool(pool)
+            pool.tuning = tuning.clamped()
+            let now = Date().timeIntervalSince1970
+            slowVisual = now < slowUntil
+            let sim = slowVisual ? dt * 0.5 : dt
+            let events = pool.tick(dt: sim)
+            publishPool(pool)
+            reactPool(to: events, session: pool)
+            notePool(pool)
+            scene.presentPool(events, session: pool)
+        }
     }
 
     var timeScale: CGFloat {
-        if session?.hitStopRemaining ?? 0 > 0 { return 0 }
+        // Hit-stop is consumed inside the session tick. Zeroing the scene speed
+        // pauses SpriteKit's update, so the stop never drains and the pool freezes.
         if slowVisual { return 0.5 }
         return 1
     }
@@ -218,6 +292,170 @@ final class GameModel: ObservableObject {
         }
         if proofNice && session.bigWavePhase == .breather {
             proofDeath = true
+        }
+    }
+
+    /// `-uitest` only. Face the next swell until Nice and the SURGE breather, then miss on purpose.
+    private func steerPool(_ pool: WavePoolSession) {
+        guard uitest else { return }
+        let live = pool.liveWaves
+        if !proofDeath {
+            if let side = pool.suggestedSide() {
+                pool.face(side)
+            }
+            if let chop = live.filter({ $0.kind == .chop }).min(by: { $0.arrivalTick < $1.arrivalTick }),
+               chop.side == pool.facing,
+               chop.step >= 4 {
+                let away = Side.allCases.first { candidate in
+                    candidate != chop.side && !live.contains { $0.kind == .chop && $0.side == candidate }
+                }
+                if let away {
+                    pool.face(away)
+                }
+            }
+        } else if let side = pool.suggestedSide() {
+            pool.face(side.opposite)
+        }
+    }
+
+    private func notePool(_ pool: WavePoolSession) {
+        guard uitest, !proofDeath else { return }
+        if pool.combo >= 5 {
+            proofNice = true
+        }
+        #if DEBUG
+        if proofArmor { return }
+        #endif
+        if proofNice && pool.bigWavePhase == .breather {
+            proofDeath = true
+        }
+    }
+
+    #if DEBUG
+    /// The proof calls this after Nice, golden, SURGE, the ring, and the play screenshots.
+    func disarmProof() {
+        proofArmor = false
+        pool?.proofArmor = false
+        proofDeath = true
+    }
+    #endif
+
+    private func publishPool(_ pool: WavePoolSession) {
+        if score != pool.score { score = pool.score }
+        if lives != pool.lives { lives = pool.lives }
+        if combo != pool.combo { combo = pool.combo }
+        if multiplier != pool.multiplier { multiplier = pool.multiplier }
+        if runBestCombo != pool.bestCombo { runBestCombo = pool.bestCombo }
+        if lifePips != pool.lifePips { lifePips = pool.lifePips }
+        if bigWavePhase != pool.bigWavePhase {
+            bigWavePhase = pool.bigWavePhase
+            if bigWavePhase != .idle { sawBigWave = true }
+        }
+        let side = pool.suggestedSide()?.rawValue ?? "none"
+        if safeLane != side { safeLane = side }
+        let chop = pool.liveWaves.contains { $0.kind == .chop }
+        if jellyfishOnScreen != chop { jellyfishOnScreen = chop }
+        if pool.liveWaves.contains(where: { $0.kind == .goldenWave }) { sawGolden = true }
+        let lit = !pool.ringSides.isEmpty
+        if ringLit != lit { ringLit = lit }
+        let facingNow = pool.facing.rawValue
+        if facing != facingNow { facing = facingNow }
+        if !didRibbon && bestAtStart >= 10 && score > bestAtStart {
+            didRibbon = true
+            newBestRibbon = true
+            tones.play("new-best", pan: 0, volume: 0.8)
+            tones.duck()
+            ribbonClear?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.newBestRibbon = false }
+            ribbonClear = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: work)
+        }
+    }
+
+    private func reactPool(to events: [PoolEvent], session: WavePoolSession) {
+        for event in events {
+            switch event {
+            case .caught(_, let side, let kind, _, let combo, let close):
+                if kind == .goldenWave { sawGolden = true }
+                haptics.catchFeedback(kind: hapticKind(kind), close: close, wave: session.bigWavePhase == .active)
+                playPoolCatch(kind: kind, side: side, combo: combo)
+                if close {
+                    let now = Date().timeIntervalSince1970
+                    if now >= nextSlow {
+                        slowUntil = now + Feel.nearMissSlow
+                        nextSlow = now + Feel.nearMissCooldown
+                    }
+                }
+            case .missed(_, let side, _, let lifeLost):
+                ladder = 0
+                if lifeLost {
+                    haptics.miss()
+                    tones.play("miss", pan: pan(side), volume: 0.85)
+                }
+            case .wiped(_, let side, _, let lifeLost):
+                ladder = 0
+                if lifeLost {
+                    haptics.sting()
+                    tones.play("miss", pan: pan(side), volume: 0.85)
+                    tones.play("sting", pan: pan(side), volume: 0.9)
+                }
+            case .dodged(_, let side):
+                tones.play("ring", pan: pan(side), volume: 0.35)
+            case .stepped(let tick, let sides):
+                let name = tick % 2 == 0 ? "tick" : "tock"
+                tones.play(name, pan: pan(sides), volume: 0.2)
+            case .whump(let side):
+                tones.play("ring", pan: pan(side), volume: 0.30, rate: 0.70)
+            case .whoosh(let side, let step):
+                let volume = 0.10 + 0.04 * Float(step)
+                let rate = 0.85 + 0.08 * Float(step)
+                tones.play("whoosh", pan: pan(side), volume: volume, rate: rate)
+            case .tier(let name, _):
+                ladder = 0
+                haptics.tier()
+                tones.play("tier", pan: 0, volume: 0.7)
+                tones.duck()
+                showCallout(name, tier: ScoreMath.tierIndex(for: session.combo))
+            case .spin:
+                haptics.tier()
+                tones.play("whoosh", pan: 0, volume: 0.6)
+                tones.play("tier", pan: 0, volume: 0.7)
+                tones.duck()
+                showCallout("SPIN!", tier: 3)
+            case .surgeWarning:
+                sawBigWave = true
+                tones.play("whoosh", pan: 0, volume: 0.7)
+                tones.duck()
+                if callout == "Nice!" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+                        self?.showCallout("SURGE!", tier: 4)
+                    }
+                } else {
+                    showCallout("SURGE!", tier: 4)
+                }
+            case .surgeStart:
+                tones.setWave(true)
+            case .surgeEnd:
+                tones.setWave(false)
+                tones.play("crash", pan: 0, volume: 0.75)
+            case .lifeUp:
+                tones.play("ring", pan: 0, volume: 0.6)
+            case .gameOver(let score, let combo):
+                finish(score: score, combo: combo)
+            case .spawned(_, let kind, _, _):
+                if kind == .goldenWave { sawGolden = true }
+            default:
+                break
+            }
+        }
+    }
+
+    private func hapticKind(_ kind: WaveKind) -> String {
+        switch kind {
+        case .goldenWave: return "goldenShell"
+        case .lifeRing: return "lifeRing"
+        case .setWave: return "board"
+        default: return kind.rawValue
         }
     }
 
@@ -324,12 +562,16 @@ final class GameModel: ObservableObject {
     }
 
     private func finish(_ session: GameSession) {
+        finish(score: session.score, combo: session.bestCombo)
+    }
+
+    private func finish(score finalScore: Int, combo: Int) {
         let previous = bestAtStart
-        isNewBest = session.score > previous
-        store.record(score: session.score, combo: session.bestCombo)
+        isNewBest = finalScore > previous
+        store.record(score: finalScore, combo: combo)
         bestScore = store.bestScore
-        runBestCombo = session.bestCombo
-        score = session.score
+        runBestCombo = combo
+        score = finalScore
         lives = 0
         againReady = false
         cardVisible = false
@@ -360,6 +602,33 @@ final class GameModel: ObservableObject {
         if ScoreMath.callout(for: combo) == nil {
             ladder = (ladder + 1) % 8
         }
+    }
+
+    private func playPoolCatch(kind: WaveKind, side: Side, combo: Int) {
+        if kind == .goldenWave {
+            tones.play("golden", pan: pan(side), volume: 0.9)
+            return
+        }
+        let name = "catch-\(ladder)"
+        if ladder > maxPitch { maxPitch = ladder }
+        tones.play(name, pan: pan(side), volume: 1)
+        if ScoreMath.callout(for: combo) == nil {
+            ladder = (ladder + 1) % 8
+        }
+    }
+
+    private func pan(_ side: Side) -> Float {
+        switch side {
+        case .east: return 0.55
+        case .west: return -0.55
+        case .north, .south: return 0
+        }
+    }
+
+    private func pan(_ sides: [Side]) -> Float {
+        guard !sides.isEmpty else { return 0 }
+        let total = sides.reduce(Float(0)) { $0 + pan($1) }
+        return total / Float(sides.count)
     }
 
     private func pan(_ lane: Lane) -> Float {

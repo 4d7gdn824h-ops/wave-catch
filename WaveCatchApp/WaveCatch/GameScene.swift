@@ -23,6 +23,10 @@ final class GameScene: SKScene {
     /// Items are 30% larger than the previous pass. The surfer is 40% larger.
     private let itemScale: CGFloat = 1.3 * 1.3
     private let surferScale: CGFloat = 1.4
+    var bodyScale: CGFloat = 1.4
+    private var backdropIsPool: Bool?
+    private let poolArt = PoolArt()
+    private var lastFacing: Side?
     private var poseFrom = CGPoint.zero
     private var poseTo = CGPoint.zero
     private var poseStart: TimeInterval = 0
@@ -40,6 +44,22 @@ final class GameScene: SKScene {
         addChild(world)
         world.addChild(surfer)
         drawSurfer()
+        isUserInteractionEnabled = true
+    }
+
+    /// Diagonal zones cover the whole scene, including the deck and the sky strip.
+    /// HUD buttons sit above the view and keep the touch.
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let model, !model.legacyRamps else { return }
+        guard let touch = touches.first else { return }
+        let point = touch.location(in: self)
+        let side = PoolInput.side(
+            x: Double(point.x),
+            y: Double(point.y),
+            width: Double(size.width),
+            height: Double(size.height)
+        )
+        model.setSide(side)
     }
 
     required init?(coder aDecoder: NSCoder) {
@@ -61,15 +81,21 @@ final class GameScene: SKScene {
     }
 
     override func update(_ currentTime: TimeInterval) {
-        let dt: Double
+        let elapsed: Double
         if let lastTime {
-            dt = min(0.05, max(0, currentTime - lastTime))
+            elapsed = min(1, max(0, currentTime - lastTime))
         } else {
-            dt = 0
+            elapsed = 0
         }
         lastTime = currentTime
-        if dt > 0 {
-            model?.advance(dt: dt)
+        // A stalled frame, including XCTest sleeps on the main thread, still has to
+        // play every tick that came due. One 50 ms cap dropped that time on the floor
+        // and the next swell never arrived during the proof.
+        var left = elapsed
+        while left > 0.0001 {
+            let slice = min(1.0 / 60.0, left)
+            model?.advance(dt: slice)
+            left -= slice
         }
         speed = model?.timeScale ?? 1
         layout(now: currentTime)
@@ -113,8 +139,14 @@ final class GameScene: SKScene {
     }
 
     private func layout(now: TimeInterval) {
-        if backdrop == nil || abs(backdropSize.width - size.width) > 2 || abs(backdropSize.height - size.height) > 2 {
+        let wantPool = model?.legacyRamps == false
+        if backdrop == nil || abs(backdropSize.width - size.width) > 2 || abs(backdropSize.height - size.height) > 2 || backdropIsPool != wantPool {
+            backdropIsPool = wantPool
             rebuildBackdrop()
+        }
+        if wantPool {
+            layoutPool(now: now)
+            return
         }
         world.position = shakeOffset(now: now)
         animateDressing(now: now)
@@ -135,6 +167,10 @@ final class GameScene: SKScene {
     }
 
     private func rebuildBackdrop() {
+        if backdropIsPool == true {
+            rebuildPool()
+            return
+        }
         chuteGroups.removeAll()
         glints.removeAll()
         foamLine = nil
@@ -816,6 +852,25 @@ final class GameScene: SKScene {
 
     private func drawSurfer() {
         surfer.removeAllChildren()
+        // Nose is local +y and sits behind the body, so the tip leads the head.
+        // PoolInput.noseRotation turns that tip toward the faced wall.
+        let board = SKShapeNode(path: boardPath())
+        board.fillColor = Palette.uiHotPink
+        board.strokeColor = Palette.uiPlum
+        board.lineWidth = 3
+        board.position = .zero
+        board.zRotation = 0
+        board.name = "board"
+        surfer.addChild(board)
+        let bolt = SKShapeNode(path: lightningPath())
+        bolt.strokeColor = Palette.uiGold
+        bolt.lineWidth = 2
+        bolt.fillColor = .clear
+        bolt.position = CGPoint(x: 0, y: 58)
+        bolt.zRotation = .pi / 2
+        bolt.name = "bolt"
+        surfer.addChild(bolt)
+
         let hair = SKShapeNode(ellipseOf: CGSize(width: 46, height: 36))
         hair.fillColor = Palette.uiHair
         hair.strokeColor = Palette.uiPlum
@@ -836,23 +891,6 @@ final class GameScene: SKScene {
         torso.lineWidth = 3
         torso.position = CGPoint(x: 0, y: 16)
         surfer.addChild(torso)
-
-        let board = SKShapeNode(rectOf: CGSize(width: 78, height: 16), cornerRadius: 8)
-        board.fillColor = Palette.uiHotPink
-        board.strokeColor = Palette.uiPlum
-        board.lineWidth = 3
-        board.position = CGPoint(x: 0, y: -18)
-        board.zRotation = -0.08
-        board.name = "board"
-        surfer.addChild(board)
-        let bolt = SKShapeNode(path: lightningPath())
-        bolt.strokeColor = Palette.uiGold
-        bolt.lineWidth = 2
-        bolt.fillColor = .clear
-        bolt.position = CGPoint(x: 0, y: -18)
-        bolt.zRotation = -0.08
-        bolt.name = "bolt"
-        surfer.addChild(bolt)
 
         let arm = SKShapeNode(rectOf: CGSize(width: 10, height: 28), cornerRadius: 5)
         arm.fillColor = Palette.uiSkin
@@ -905,6 +943,20 @@ final class GameScene: SKScene {
         }
     }
 
+    /// Pointed board. The tip sits past the head, on local +y.
+    private func boardPath() -> CGPath {
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 0, y: 78))
+        path.addQuadCurve(to: CGPoint(x: 9, y: 46), control: CGPoint(x: 12, y: 68))
+        path.addLine(to: CGPoint(x: 9, y: -6))
+        path.addQuadCurve(to: CGPoint(x: 0, y: -24), control: CGPoint(x: 9, y: -18))
+        path.addQuadCurve(to: CGPoint(x: -9, y: -6), control: CGPoint(x: -9, y: -18))
+        path.addLine(to: CGPoint(x: -9, y: 46))
+        path.addQuadCurve(to: CGPoint(x: 0, y: 78), control: CGPoint(x: -12, y: 68))
+        path.closeSubpath()
+        return path
+    }
+
     private func lightningPath() -> CGPath {
         let path = CGMutablePath()
         path.move(to: CGPoint(x: 8, y: 6))
@@ -914,16 +966,16 @@ final class GameScene: SKScene {
         return path
     }
 
-    private func playCatchSquash() {
+    func playCatchSquash() {
         guard !UIAccessibility.isReduceMotionEnabled else { return }
         surfer.removeAction(forKey: "squash")
-        let down = SKAction.scaleX(to: surferScale * 1.15, y: surferScale * 0.85, duration: 0.06)
-        let back = SKAction.scale(to: surferScale, duration: 0.12)
+        let down = SKAction.scaleX(to: bodyScale * 1.15, y: bodyScale * 0.85, duration: 0.06)
+        let back = SKAction.scale(to: bodyScale, duration: 0.12)
         back.timingMode = .easeOut
         surfer.run(.sequence([down, back]), withKey: "squash")
     }
 
-    private func playMissWobble() {
+    func playMissWobble() {
         guard let board = surfer.childNode(withName: "board") else { return }
         board.run(.rotate(byAngle: .pi, duration: 0.30))
         surfer.childNode(withName: "bolt")?.run(.rotate(byAngle: .pi, duration: 0.30))
@@ -960,10 +1012,21 @@ final class GameScene: SKScene {
         return path
     }
 
-    private func splash(at point: CGPoint, golden: Bool) {
-        let count = golden ? 24 : 12
+    func splash(at point: CGPoint, golden: Bool, strong: Bool = false) {
+        let count = golden ? 24 : (strong ? 18 : 12)
+        let ring = SKShapeNode(circleOfRadius: strong ? 18 : 10)
+        ring.strokeColor = golden ? Palette.uiGold : Palette.uiCream
+        ring.fillColor = .clear
+        ring.lineWidth = strong ? 4 : 2
+        ring.position = point
+        ring.zPosition = 11
+        world.addChild(ring)
+        ring.run(.sequence([
+            .group([.scale(to: strong ? 3.2 : 2.2, duration: 0.40), .fadeOut(withDuration: 0.40)]),
+            .removeFromParent(),
+        ]))
         for index in 0..<count {
-            let drop = SKShapeNode(circleOfRadius: golden && index % 3 == 0 ? 5 : 3)
+            let drop = SKShapeNode(circleOfRadius: golden && index % 3 == 0 ? 6 : (strong ? 5 : 3))
             if golden {
                 drop.fillColor = index % 3 == 0 ? Palette.uiCream : Palette.uiGold
             } else {
@@ -974,19 +1037,19 @@ final class GameScene: SKScene {
             drop.zPosition = 11
             world.addChild(drop)
             let angle = CGFloat(index) / CGFloat(count) * .pi * 2
-            let dist = CGFloat(28 + (index % 5) * 8)
+            let dist = CGFloat((strong ? 46 : 28) + (index % 5) * (strong ? 12 : 8))
             drop.run(.sequence([
                 .group([
-                    .moveBy(x: cos(angle) * dist, y: sin(angle) * dist, duration: 0.30),
-                    .fadeOut(withDuration: 0.30),
-                    .scale(to: 0.2, duration: 0.30),
+                    .moveBy(x: cos(angle) * dist, y: sin(angle) * dist, duration: strong ? 0.50 : 0.30),
+                    .fadeOut(withDuration: strong ? 0.50 : 0.30),
+                    .scale(to: 0.2, duration: strong ? 0.50 : 0.30),
                 ]),
                 .removeFromParent(),
             ]))
         }
     }
 
-    private func popScore(_ points: Int, combo: Int, lane: Lane) {
+    func popScore(_ points: Int, combo: Int, lane: Lane) {
         let label = SKLabelNode(fontNamed: "Bungee-Regular")
         label.text = "+\(points)"
         label.fontSize = 28
@@ -1030,7 +1093,7 @@ final class GameScene: SKScene {
         CGPoint(x: point.x * size.width, y: (1 - point.y) * size.height)
     }
 
-    private func float(text: String, lane: Lane, color: UIColor) {
+    func float(text: String, lane: Lane, color: UIColor) {
         let label = SKLabelNode(fontNamed: "Bungee-Regular")
         label.text = text
         label.fontSize = text == "CLOSE!" ? 22 : 20
@@ -1060,7 +1123,7 @@ final class GameScene: SKScene {
         )
     }
 
-    private func beginShake(amplitude: CGFloat, duration: Double, now: TimeInterval, reduce: Bool) {
+    func beginShake(amplitude: CGFloat, duration: Double, now: TimeInterval, reduce: Bool) {
         guard !reduce else { return }
         if shaking && now < shakeStart + shakeDuration { return }
         shaking = true
@@ -1088,6 +1151,131 @@ final class GameScene: SKScene {
                 .colorize(with: Palette.uiJelly, colorBlendFactor: 0.7, duration: 0.05),
                 .colorize(withColorBlendFactor: 0, duration: 0.05),
             ]), count: 3),
+        ]))
+    }
+
+    private func rebuildPool() {
+        chuteGroups.removeAll()
+        glints.removeAll()
+        foamLine = nil
+        for child in world.children where child !== surfer {
+            child.removeFromParent()
+        }
+        objectNodes.removeAll()
+        objectSteps.removeAll()
+        ringNodes.removeAll()
+        waveNodes.removeAll()
+        backdrop = nil
+        backdropSize = size
+        poolArt.install(in: world, size: size)
+        if surfer.parent == nil { world.addChild(surfer) }
+        surfer.zPosition = 6
+    }
+
+    private func layoutPool(now: TimeInterval) {
+        world.position = shakeOffset(now: now)
+        let session = model?.mode == .menu ? nil : model?.pool
+        if let session, session.facing != lastFacing {
+            lastFacing = session.facing
+            if !UIAccessibility.isReduceMotionEnabled {
+                surfer.removeAction(forKey: "turn")
+                let down = SKAction.scaleX(to: bodyScale * 1.12, y: bodyScale * 0.88, duration: 0.03)
+                let back = SKAction.scale(to: bodyScale, duration: 0.03)
+                surfer.run(.sequence([down, back]), withKey: "turn")
+            }
+        }
+        if session == nil { lastFacing = .south }
+        poolArt.pressedSide = model?.pressedSide
+        poolArt.update(session: session, surfer: surfer, size: size, now: now, bodyScale: &bodyScale)
+        let serial = session?.spinSerial ?? 0
+        if serial != poolArt.seenSpin {
+            poolArt.seenSpin = serial
+            if serial > 0, !UIAccessibility.isReduceMotionEnabled {
+                surfer.zRotation = poolArt.rotation(for: session?.facing ?? .south)
+                surfer.run(.rotate(byAngle: .pi * 2, duration: 0.55), withKey: "spin")
+            }
+        }
+    }
+
+    func presentPool(_ events: [PoolEvent], session: WavePoolSession) {
+        let reduce = UIAccessibility.isReduceMotionEnabled
+        for event in events {
+            switch event {
+            case .caught(_, let side, let kind, let points, let combo, let close):
+                let spot = poolArt.point(side: side, step: 5)
+                popScore(points, at: CGPoint(x: spot.x, y: spot.y + 70), combo: combo)
+                if close { float(text: "CLOSE!", at: spot, color: Palette.uiSun) }
+                splash(at: spot, golden: kind == .goldenWave, strong: true)
+                playCatchSquash()
+            case .missed(_, let side, _, let lifeLost):
+                let spot = poolArt.point(side: side, step: 5)
+                float(text: lifeLost ? "WIPEOUT" : "SAFE", at: spot, color: Palette.uiHotPink)
+                if lifeLost {
+                    splash(at: spot, golden: false, strong: true)
+                    playMissWobble()
+                    beginShake(amplitude: 14, duration: 0.40, now: lastTime ?? 0, reduce: reduce)
+                }
+            case .wiped(_, let side, _, let lifeLost):
+                let spot = poolArt.point(side: side, step: 5)
+                float(text: "WIPEOUT", at: spot, color: Palette.uiJelly)
+                splash(at: spot, golden: false, strong: true)
+                if lifeLost {
+                    playMissWobble()
+                    beginShake(amplitude: 16, duration: 0.45, now: lastTime ?? 0, reduce: reduce)
+                }
+            case .dodged(_, let side):
+                float(text: "DODGE!", at: poolArt.point(side: side, step: 5), color: Palette.uiSea)
+            case .surgeEnd:
+                splash(at: CGPoint(x: size.width / 2, y: size.height * 0.5), golden: false)
+            default:
+                break
+            }
+        }
+    }
+
+    func popScore(_ points: Int, at point: CGPoint, combo: Int) {
+        let shadow = SKLabelNode(fontNamed: "Bungee-Regular")
+        shadow.text = "+\(points)"
+        shadow.fontSize = 48
+        shadow.fontColor = Palette.uiPlum
+        shadow.verticalAlignmentMode = .center
+        shadow.position = CGPoint(x: point.x + 3, y: point.y - 3)
+        shadow.zPosition = 19
+        let label = SKLabelNode(fontNamed: "Bungee-Regular")
+        label.text = "+\(points)"
+        label.fontSize = 48
+        label.fontColor = scoreColor(combo)
+        label.verticalAlignmentMode = .center
+        label.position = point
+        label.zPosition = 20
+        let tier = CGFloat(ScoreMath.tierIndex(for: combo))
+        let scale = min(1.4, 1.0 + 0.08 * tier)
+        label.setScale(scale)
+        shadow.setScale(scale)
+        world.addChild(shadow)
+        world.addChild(label)
+        func rise() -> SKAction {
+            .sequence([
+                .group([.moveBy(x: 0, y: 64, duration: 0.70), .fadeOut(withDuration: 0.70)]),
+                .removeFromParent(),
+            ])
+        }
+        label.run(rise())
+        shadow.run(rise())
+    }
+
+    func float(text: String, at point: CGPoint, color: UIColor) {
+        let label = SKLabelNode(fontNamed: "Bungee-Regular")
+        label.text = text
+        label.fontSize = text == "WIPEOUT" ? 32 : (text == "CLOSE!" ? 22 : 20)
+        label.fontColor = color
+        label.verticalAlignmentMode = .bottom
+        label.position = CGPoint(x: point.x, y: point.y + 36)
+        label.zPosition = 12
+        world.addChild(label)
+        label.run(.sequence([
+            .group([.moveBy(x: 0, y: 32, duration: 0.40), .fadeOut(withDuration: 0.40)]),
+            .removeFromParent(),
         ]))
     }
 }

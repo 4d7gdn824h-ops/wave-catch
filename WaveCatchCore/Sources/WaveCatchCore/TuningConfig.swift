@@ -23,6 +23,10 @@ public struct TuningConfig: Equatable {
     public var spotlightGoldenShell: Bool
     /// Demo-only: a Big Wave warning begins once the combo reaches 5.
     public var spotlightBigWave: Bool
+    /// Wave-pool demo: the second spawn is a golden wave.
+    public var spotlightGoldenWave: Bool
+    /// Wave-pool demo: SURGE begins once the combo reaches 5.
+    public var spotlightSurge: Bool
 
     public init(
         speedMultiplier: Double = 1,
@@ -33,7 +37,9 @@ public struct TuningConfig: Equatable {
         scriptedKinds: [ObjectKind] = [],
         demoSpotlightJellyfish: Bool = false,
         spotlightGoldenShell: Bool = false,
-        spotlightBigWave: Bool = false
+        spotlightBigWave: Bool = false,
+        spotlightGoldenWave: Bool = false,
+        spotlightSurge: Bool = false
     ) {
         self.speedMultiplier = speedMultiplier
         self.spawnRateMultiplier = spawnRateMultiplier
@@ -44,6 +50,8 @@ public struct TuningConfig: Equatable {
         self.demoSpotlightJellyfish = demoSpotlightJellyfish
         self.spotlightGoldenShell = spotlightGoldenShell
         self.spotlightBigWave = spotlightBigWave
+        self.spotlightGoldenWave = spotlightGoldenWave
+        self.spotlightSurge = spotlightSurge
     }
 
     public func clamped() -> TuningConfig {

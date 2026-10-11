@@ -9,7 +9,7 @@ final class WaveCatchUITests: XCTestCase {
 
     func testFullGameProof() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["-uitest", "-seed", "7"]
+        app.launchArguments = ["-uitest", "-seed", "7", "-WCSpotlight", "-WCProofMode"]
         XCUIDevice.shared.orientation = .landscapeLeft
         app.launch()
         XCUIDevice.shared.orientation = .landscapeLeft
@@ -18,98 +18,187 @@ final class WaveCatchUITests: XCTestCase {
         XCTAssertTrue(play.waitForExistence(timeout: 8))
         XCTAssertFalse(app.buttons["debugGear"].exists)
         save("01-menu")
-        mark("record-start")
-        Thread.sleep(forTimeInterval: 1.5)
+        // The recorder starts on this marker, then writes recording-live only after
+        // simctl prints "Recording started". Stay on the menu until that happens.
+        mark("menu-ready")
+        XCTAssertTrue(waitForMarker("recording-live", timeout: 70), "recording did not start")
         let started = Date()
         play.tap()
 
-        let score = app.staticTexts["score"]
+        let score = app.descendants(matching: .any)["score"]
         XCTAssertTrue(score.waitForExistence(timeout: 6))
         XCTAssertFalse(app.buttons["debugGear"].exists)
 
+        let again = app.buttons["playAgainButton"]
+        var sawMiss = false
         var sawRing = false
         var sawMidgame = false
         var sawCatch = false
         var sawGolden = false
         var previous = 0
-        let watchUntil = Date().addingTimeInterval(12)
-        while Date() < watchUntil && !(sawRing && sawGolden && sawMidgame && sawCatch) {
-            if !sawRing && app.staticTexts["ringLit"].label == "1" {
-                save("07-landing-ring")
-                sawRing = true
-            }
-            if !sawGolden && app.staticTexts["sawGolden"].label == "1" {
-                Thread.sleep(forTimeInterval: 0.7)
-                save("04-golden")
-                sawGolden = true
+
+        func sample() {
+            let over = again.exists
+            if over {
+                sawMiss = true
+            } else if let lives = probe(app, "lives"), let count = Int(lives.filter(\.isNumber)), count < 3 {
+                sawMiss = true
             }
             let now = number(in: score)
+            // Pool and catch shots have to be the live pool, not the game-over card.
+            // 03 is the first score increase we actually see, so it lands on a catch.
+            guard !over else { return }
             if now > 0 && !sawMidgame {
-                save("02-midgame")
+                save("02-pool")
                 sawMidgame = true
-            }
-            if now > previous && now >= 2 && !sawCatch {
+            } else if sawMidgame && !sawCatch && now > previous {
                 save("03-catch")
                 sawCatch = true
             }
             previous = now
+        }
+
+        for side in ["north", "east", "south", "west"] {
+            sample()
+            let id = "edge.\(side)"
+            let any = app.descendants(matching: .any)[id]
+            XCTAssertTrue(any.waitForExistence(timeout: 4), "missing \(id)")
+        }
+        sample()
+
+        let watchUntil = Date().addingTimeInterval(40)
+        while Date() < watchUntil && !(sawRing && sawGolden && sawMidgame && sawCatch) {
+            sample()
+            if !sawRing && probe(app, "ringLit") == "1" {
+                save("07-swell-ring")
+                sawRing = true
+            }
+            if !sawGolden && probe(app, "sawGolden") == "1" {
+                Thread.sleep(forTimeInterval: 0.35)
+                save("04-golden")
+                sawGolden = true
+            }
             Thread.sleep(forTimeInterval: 0.2)
         }
 
-        XCTAssertTrue(sawRing, "landing ring did not light")
-        XCTAssertTrue(sawGolden, "a golden shell should appear in the proof run")
+        XCTAssertTrue(sawRing, "the swell ring did not light")
+        XCTAssertTrue(sawGolden, "a golden wave should appear in the proof run")
         XCTAssertTrue(sawMidgame, "score never left zero")
         XCTAssertTrue(sawCatch, "a second catch was not shown")
 
-        for lane in ["upperLeft", "upperRight", "lowerLeft", "lowerRight"] {
-            let other = app.otherElements["corner.\(lane)"]
-            let button = app.buttons["corner.\(lane)"]
-            XCTAssertTrue(other.waitForExistence(timeout: 4) || button.waitForExistence(timeout: 2), "missing corner.\(lane)")
-        }
-
-        let niceDeadline = started.addingTimeInterval(25)
+        let niceDeadline = started.addingTimeInterval(50)
         var sawNiceText = false
-        let callout = app.staticTexts["callout"]
         while Date() < niceDeadline && !sawNiceText {
-            if callout.exists && callout.label == "Nice!" {
+            sample()
+            if probe(app, "sawNice") == "1" {
                 sawNiceText = true
                 break
             }
             Thread.sleep(forTimeInterval: 0.1)
         }
-        XCTAssertTrue(sawNiceText, "Nice! was not on screen")
-        XCTAssertEqual(app.staticTexts["sawNice"].label, "1", "Nice! did not appear")
+        XCTAssertTrue(sawNiceText, "Nice! was not reached")
         let pitchDeadline = Date().addingTimeInterval(2)
-        while Date() < pitchDeadline && number(in: app.staticTexts["maxPitch"]) < 3 {
+        while Date() < pitchDeadline && (probe(app, "maxPitch").flatMap { Int($0.filter(\.isNumber)) } ?? 0) < 3 {
+            sample()
             Thread.sleep(forTimeInterval: 0.1)
         }
-        XCTAssertGreaterThanOrEqual(number(in: app.staticTexts["maxPitch"]), 3, "the pitch ladder did not rise")
+        sample()
+        XCTAssertGreaterThanOrEqual(probe(app, "maxPitch").flatMap { Int($0.filter(\.isNumber)) } ?? 0, 3, "the pitch ladder did not rise")
+        XCTAssertEqual(probe(app, "sawGolden"), "1", "a golden wave was not seen")
+        XCTAssertEqual(probe(app, "sawBigWave"), "1", "SURGE did not start")
+        XCTAssertTrue(sawRing && sawGolden && sawMidgame && sawCatch, "play screenshots were not all saved")
 
-        XCTAssertEqual(app.staticTexts["sawBigWave"].label, "1", "Big Wave did not start")
+        // Armor held the lives through the shots. Turn it off and miss on purpose.
+        let armor = app.buttons["proofArmor"]
+        XCTAssertTrue(armor.waitForExistence(timeout: 2), "proof armor toggle was not available")
+        armor.tap()
 
-        let again = app.buttons["playAgainButton"]
-        XCTAssertTrue(again.waitForExistence(timeout: 40), "game over did not appear")
-        let newBest = app.staticTexts["newBest"]
+        let overDeadline = Date().addingTimeInterval(70)
+        while Date() < overDeadline && !again.exists {
+            sample()
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        sample()
+        XCTAssertTrue(sawMiss, "the proof never missed")
+        XCTAssertTrue(again.waitForExistence(timeout: 2), "game over did not appear")
+        let newBest = app.descendants(matching: .any)["newBest"]
         XCTAssertTrue(newBest.waitForExistence(timeout: 1), "NEW BEST was not on the game over card")
-        XCTAssertEqual(newBest.label, "NEW BEST")
-        XCTAssertGreaterThanOrEqual(number(in: app.staticTexts["longestCombo"]), 5, "combo never reached Nice")
+        expectation(for: NSPredicate(format: "label == 'NEW BEST'"), evaluatedWith: newBest)
+        waitForExpectations(timeout: 1)
+        XCTAssertGreaterThanOrEqual(number(in: app.descendants(matching: .any)["longestCombo"]), 5, "combo never reached Nice")
         save("05-gameover")
         again.tap()
 
         let backToZero = NSPredicate(format: "label == '0'")
-        expectation(for: backToZero, evaluatedWith: app.staticTexts["score"])
-        waitForExpectations(timeout: 6)
+        expectation(for: backToZero, evaluatedWith: score)
+        waitForExpectations(timeout: 0.7)
         XCTAssertFalse(app.buttons["playAgainButton"].exists)
         Thread.sleep(forTimeInterval: 0.8)
         save("06-restart")
         mark("restart")
         Thread.sleep(forTimeInterval: 3.0)
+        // Stop the clip while the restarted game is still up, before XCTest backgrounds the app.
         mark("record-stop")
-        Thread.sleep(forTimeInterval: 0.8)
+        Thread.sleep(forTimeInterval: 1.5)
+    }
+
+    /// Taps on the deck and sky, outside the water, still turn the surfer.
+    func testEdgeTapsOutsideThePoolFaceNorthEastSouthWest() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-seed", "1"]
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.launch()
+        XCUIDevice.shared.orientation = .landscapeLeft
+        let play = app.buttons["playButton"]
+        XCTAssertTrue(play.waitForExistence(timeout: 8))
+        play.tap()
+        let facing = app.descendants(matching: .any)["facing"]
+        XCTAssertTrue(facing.waitForExistence(timeout: 4))
+        let window = app.windows.firstMatch
+        // UIKit y-down. These points sit on the sky, the side deck, and the beach.
+        let taps: [(CGFloat, CGFloat, String)] = [
+            (0.50, 0.04, "north"),
+            (0.98, 0.55, "east"),
+            (0.50, 0.97, "south"),
+            (0.02, 0.55, "west"),
+        ]
+        for (x, y, side) in taps {
+            window.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y)).tap()
+            let deadline = Date().addingTimeInterval(2)
+            var matched = false
+            while Date() < deadline {
+                if probe(app, "facing") == side {
+                    matched = true
+                    break
+                }
+                Thread.sleep(forTimeInterval: 0.05)
+            }
+            XCTAssertTrue(matched, "edge tap \(side) faced \(probe(app, "facing") ?? "nil")")
+        }
+    }
+
+    /// Reads a probe only while it is still in the tree. Faded callouts are not safe to read.
+    private func probe(_ app: XCUIApplication, _ identifier: String) -> String? {
+        let element = app.descendants(matching: .any)[identifier]
+        guard element.exists else { return nil }
+        return element.label
     }
 
     private func number(in element: XCUIElement) -> Int {
-        Int(element.label.filter(\.isNumber)) ?? 0
+        guard element.exists else { return 0 }
+        return Int(element.label.filter(\.isNumber)) ?? 0
+    }
+
+    private func waitForMarker(_ name: String, timeout: TimeInterval) -> Bool {
+        let url = URL(fileURLWithPath: "/tmp/wavecatch-proof", isDirectory: true).appendingPathComponent(name)
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: url.path) {
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.2)
+        }
+        return FileManager.default.fileExists(atPath: url.path)
     }
 
     private func mark(_ name: String) {

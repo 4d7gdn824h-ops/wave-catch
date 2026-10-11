@@ -39,15 +39,23 @@ struct RootView: View {
                     hud(top: top, left: left, right: right, width: geo.size.width)
                 }
                 if model.mode == .playing {
-                    CornerControls(
-                        enabled: model.mode == .playing && !model.paused,
-                        swipeEnabled: model.swipeEnabled,
-                        pressed: model.pressedLane,
-                        large: model.largePad,
-                        insets: UIEdgeInsets(top: top, left: left, bottom: bottom, right: right),
-                        onLane: { model.setLane($0) }
-                    )
-                    .frame(width: geo.size.width, height: geo.size.height)
+                    if model.legacyRamps {
+                        CornerControls(
+                            enabled: model.mode == .playing && !model.paused,
+                            swipeEnabled: model.swipeEnabled,
+                            pressed: model.pressedLane,
+                            large: model.largePad,
+                            insets: UIEdgeInsets(top: top, left: left, bottom: bottom, right: right),
+                            onLane: { model.setLane($0) }
+                        )
+                        .frame(width: geo.size.width, height: geo.size.height)
+                    } else {
+                        EdgeControls(
+                            enabled: !model.paused,
+                            onSide: { model.setSide($0) }
+                        )
+                        .frame(width: geo.size.width, height: geo.size.height)
+                    }
                 }
 
                 if model.mode == .menu {
@@ -102,21 +110,23 @@ struct RootView: View {
     private func hud(top: CGFloat, left: CGFloat, right: CGFloat, width: CGFloat) -> some View {
         VStack(spacing: 4) {
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    lifeRow
-                    Text("\(model.lives)")
-                        .font(.system(size: 4))
-                        .foregroundColor(Palette.indigo)
-                        .frame(width: 24, height: 24)
-                        .accessibilityIdentifier("lives")
-                        .accessibilityLabel("\(model.lives)")
-                }
-                Spacer()
-                VStack(spacing: 2) {
-                    Text("\(model.score)")
-                        .font(.custom("Bungee-Regular", size: 40))
-                        .foregroundColor(Palette.foam)
-                        .accessibilityIdentifier("score")
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .center, spacing: 8) {
+                        lifeRow
+                        Text("\(model.score)")
+                            .font(.custom("Bungee-Regular", size: 32))
+                            .foregroundColor(Palette.foam)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(Palette.buttonPlum))
+                            .shadow(color: Palette.buttonPlum.opacity(0.55), radius: 6, y: 2)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityIdentifier("score")
+                            .accessibilityLabel("\(model.score)")
+                    }
+                    if !model.legacyRamps {
+                        pipRow
+                    }
                     Text(multiplierText)
                         .font(.custom("Bungee-Regular", size: 16))
                         .foregroundColor(Palette.indigo)
@@ -125,7 +135,9 @@ struct RootView: View {
                         .background(tierColor)
                         .clipShape(Capsule())
                 }
+                .allowsHitTesting(false)
                 Spacer()
+                    .allowsHitTesting(false)
                 VStack(alignment: .trailing, spacing: 8) {
                     if model.mode == .playing {
                         Button(action: { model.togglePause() }) {
@@ -138,6 +150,19 @@ struct RootView: View {
                         }
                         .accessibilityIdentifier("pauseButton")
                     }
+                    #if DEBUG
+                    if model.proofArmor {
+                        Button(action: { model.disarmProof() }) {
+                            Text("off")
+                                .font(.system(size: 1))
+                                .foregroundColor(Palette.buttonSand)
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityIdentifier("proofArmor")
+                        .accessibilityLabel("proofArmor")
+                    }
+                    #endif
                     if model.showTuning && model.mode == .playing {
                         Button(action: { model.showDebug = true }) {
                             Image(systemName: "gearshape.fill")
@@ -151,56 +176,40 @@ struct RootView: View {
                     }
                 }
             }
-            HStack {
-                Text(model.safeLane)
-                    .font(.system(size: 4))
-                    .foregroundColor(Palette.indigo)
-                    .frame(width: 24, height: 24)
-                    .accessibilityIdentifier("safeLane")
-                    .accessibilityLabel(model.safeLane)
-                Text(model.jellyfishOnScreen ? "1" : "0")
-                    .font(.system(size: 4))
-                    .foregroundColor(Palette.indigo)
-                    .frame(width: 24, height: 24)
-                    .accessibilityIdentifier("jellyfishOnScreen")
-                    .accessibilityLabel(model.jellyfishOnScreen ? "1" : "0")
-                Text(model.ringLit ? "1" : "0")
-                    .font(.system(size: 4))
-                    .foregroundColor(Palette.indigo)
-                    .frame(width: 24, height: 24)
-                    .accessibilityIdentifier("ringLit")
-                    .accessibilityLabel(model.ringLit ? "1" : "0")
-                Text(model.sawNice ? "1" : "0")
-                    .font(.system(size: 4))
-                    .foregroundColor(Palette.indigo)
-                    .frame(width: 24, height: 24)
-                    .accessibilityIdentifier("sawNice")
-                    .accessibilityLabel(model.sawNice ? "1" : "0")
-                Text(model.sawGolden ? "1" : "0")
-                    .font(.system(size: 4))
-                    .foregroundColor(Palette.indigo)
-                    .frame(width: 24, height: 24)
-                    .accessibilityIdentifier("sawGolden")
-                    .accessibilityLabel(model.sawGolden ? "1" : "0")
-                Text(model.sawBigWave ? "1" : "0")
-                    .font(.system(size: 4))
-                    .foregroundColor(Palette.indigo)
-                    .frame(width: 24, height: 24)
-                    .accessibilityIdentifier("sawBigWave")
-                    .accessibilityLabel(model.sawBigWave ? "1" : "0")
-                Text("\(model.maxPitch)")
-                    .font(.system(size: 4))
-                    .foregroundColor(Palette.indigo)
-                    .frame(width: 24, height: 24)
-                    .accessibilityIdentifier("maxPitch")
-                    .accessibilityLabel("\(model.maxPitch)")
-                Spacer()
-            }
+            proofProbes
         }
-        .padding(.leading, left + CornerMetrics.side + CornerMetrics.margin + 8)
-        .padding(.trailing, right + CornerMetrics.side + CornerMetrics.margin + 8)
+        .padding(.leading, model.legacyRamps ? left + CornerMetrics.side + CornerMetrics.margin + 8 : left + 16)
+        .padding(.trailing, model.legacyRamps ? right + CornerMetrics.side + CornerMetrics.margin + 8 : right + 16)
         .padding(.top, top + 8)
         .frame(width: width, alignment: .top)
+    }
+
+    /// Kept for XCUITest. Parked offscreen so screenshots, the clip, and release builds stay clean.
+    private var proofProbes: some View {
+        ZStack(alignment: .topLeading) {
+            probe("lives", "\(model.lives)")
+            probe("safeLane", model.safeLane)
+            probe("jellyfishOnScreen", model.jellyfishOnScreen ? "1" : "0")
+            probe("ringLit", model.ringLit ? "1" : "0")
+            probe("sawNice", model.sawNice ? "1" : "0")
+            probe("sawGolden", model.sawGolden ? "1" : "0")
+            probe("sawBigWave", model.sawBigWave ? "1" : "0")
+            probe("maxPitch", "\(model.maxPitch)")
+            probe("facing", model.facing)
+        }
+        .frame(width: 1, height: 1)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func probe(_ identifier: String, _ label: String) -> some View {
+        Text(label)
+            .font(.system(size: 1))
+            .foregroundColor(Palette.indigo)
+            .frame(width: 1, height: 1)
+            .offset(x: -3000, y: -3000)
+            .accessibilityIdentifier(identifier)
+            .accessibilityLabel(label)
     }
 
     private var lifeRow: some View {
@@ -222,6 +231,17 @@ struct RootView: View {
                             .stroke(Palette.buttonPlum, lineWidth: 1.5)
                         }
                     }
+            }
+        }
+    }
+
+    private var pipRow: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(index < model.lifePips ? Palette.gold : Palette.buttonPlum.opacity(0.35))
+                    .frame(width: 8, height: 8)
+                    .overlay(Circle().stroke(Palette.buttonPlum, lineWidth: 1))
             }
         }
     }
@@ -259,7 +279,12 @@ struct RootView: View {
                 .font(.custom("Bungee-Regular", size: 40))
                 .foregroundColor(Palette.foam)
                 .shadow(color: Palette.hotPink, radius: 0, x: 3, y: 3)
-            Text("Four spots. One board. Keep the combo.")
+            if !model.legacyRamps {
+                Text("Wave Pool")
+                    .font(.custom("Rubik-Regular", size: 13))
+                    .foregroundColor(Palette.sun)
+            }
+            Text(model.legacyRamps ? "Four spots. One board. Keep the combo." : "Face the swell. Keep the combo.")
                 .font(.custom("Rubik-Regular", size: 16))
                 .foregroundColor(Palette.foam)
                 .multilineTextAlignment(.center)
@@ -406,7 +431,7 @@ struct SceneHost: UIViewRepresentable {
         view.presentScene(scene)
         view.preferredFramesPerSecond = 60
         view.ignoresSiblingOrder = true
-        view.isUserInteractionEnabled = false
+        view.isUserInteractionEnabled = true
         view.allowsTransparency = false
         return view
     }

@@ -21,7 +21,7 @@ encode() {
   if [[ -n "$limit" ]]; then
     duration_args=(-t "$limit")
   fi
-  ffmpeg -y -i "$input" "${duration_args[@]}" \
+  ffmpeg -y -i "$input" ${duration_args[@]+"${duration_args[@]}"} \
     -vf "transpose=2,scale=1280:-2,setsar=1" \
     -c:v libx264 -pix_fmt yuv420p -profile:v high \
     -b:v "$bitrate" -maxrate "$bitrate" -bufsize 4M \

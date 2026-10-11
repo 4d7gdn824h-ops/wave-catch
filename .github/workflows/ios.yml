@@ -156,36 +156,27 @@ jobs:
             exit "$BAR"
           fi
           mkdir -p /tmp/wavecatch-proof "$GITHUB_WORKSPACE/docs/proof"
-          rm -f /tmp/wavecatch-proof/record-start /tmp/wavecatch-proof/record-stop /tmp/wavecatch-proof/record-cancel /tmp/wavecatch-proof/record.pid /tmp/wavecatch-proof/raw.mp4 /tmp/wavecatch-proof/audio.log
+          rm -f /tmp/wavecatch-proof/record-start /tmp/wavecatch-proof/record-start.time /tmp/wavecatch-proof/record-stop /tmp/wavecatch-proof/record-cancel /tmp/wavecatch-proof/record.pid /tmp/wavecatch-proof/recording-live /tmp/wavecatch-proof/menu-ready /tmp/wavecatch-proof/menu-ready.time /tmp/wavecatch-proof/record.log /tmp/wavecatch-proof/raw.mp4 /tmp/wavecatch-proof/audio.log
           rm -f "$GITHUB_WORKSPACE/docs/proof/gameplay.mp4"
           xcrun simctl spawn "${{ steps.sim.outputs.udid }}" log stream --style compact --predicate 'eventMessage CONTAINS "WCAUDIO" OR composedMessage CONTAINS "WCAUDIO"' > /tmp/wavecatch-proof/audio.log 2>&1 &
           LOG_PID=$!
+          export SIM_UDID="${{ steps.sim.outputs.udid }}"
           (
             deadline=$((SECONDS + 180))
-            while [ ! -f /tmp/wavecatch-proof/record-start ] && [ ! -f /tmp/wavecatch-proof/record-cancel ]; do
+            while [ ! -f /tmp/wavecatch-proof/menu-ready ] && [ ! -f /tmp/wavecatch-proof/record-cancel ]; do
               if [ "$SECONDS" -ge "$deadline" ]; then
                 echo "recorder: timed out waiting for the menu"
                 exit 0
               fi
               sleep 0.2
             done
-            if [ ! -f /tmp/wavecatch-proof/record-start ]; then
+            if [ ! -f /tmp/wavecatch-proof/menu-ready ]; then
               echo "recorder: cancelled before the menu"
               exit 0
             fi
             echo "recorder: menu is up"
-            python3 -c 'import time; open("/tmp/wavecatch-proof/record-start.time","w").write(f"{time.time():.6f}\n")'
-            xcrun simctl io "${{ steps.sim.outputs.udid }}" recordVideo --codec h264 --force /tmp/wavecatch-proof/raw.mp4 &
-            echo $! > /tmp/wavecatch-proof/record.pid
-            while [ ! -f /tmp/wavecatch-proof/record-stop ] && [ ! -f /tmp/wavecatch-proof/record-cancel ]; do
-              sleep 0.2
-            done
-            sleep 0.4
-            if [ -f /tmp/wavecatch-proof/record.pid ]; then
-              kill -INT "$(cat /tmp/wavecatch-proof/record.pid)" || true
-              wait "$(cat /tmp/wavecatch-proof/record.pid)" || true
-            fi
-            echo "recorder: stopped"
+            python3 -c 'import base64,pathlib; pathlib.Path("/tmp/wavecatch-recorder.py").write_bytes(base64.b64decode("aW1wb3J0IG9zLCBwdHksIHNlbGVjdCwgc2lnbmFsLCBzdWJwcm9jZXNzLCBzeXMsIHRpbWUKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgpyb290ID0gUGF0aCgiL3RtcC93YXZlY2F0Y2gtcHJvb2YiKQp1ZGlkID0gb3MuZW52aXJvblsiU0lNX1VESUQiXQptYXN0ZXIsIHNsYXZlID0gcHR5Lm9wZW5wdHkoKQpwcm9jID0gc3VicHJvY2Vzcy5Qb3BlbigKICAgIFsieGNydW4iLCAic2ltY3RsIiwgImlvIiwgdWRpZCwgInJlY29yZFZpZGVvIiwgIi0tY29kZWMiLCAiaDI2NCIsICItLWZvcmNlIiwgc3RyKHJvb3QgLyAicmF3Lm1wNCIpXSwKICAgIHN0ZG91dD1zbGF2ZSwKICAgIHN0ZGVycj1zbGF2ZSwKICAgIHN0ZGluPXNsYXZlLAogICAgY2xvc2VfZmRzPVRydWUsCikKb3MuY2xvc2Uoc2xhdmUpCihyb290IC8gInJlY29yZC5waWQiKS53cml0ZV90ZXh0KHN0cihwcm9jLnBpZCkpCm9zLnNldF9ibG9ja2luZyhtYXN0ZXIsIEZhbHNlKQpsb2dmID0gb3Blbihyb290IC8gInJlY29yZC5sb2ciLCAid2IiKQpidWYgPSBiIiIKbGl2ZSA9IEZhbHNlCndhcm5lZCA9IEZhbHNlCmRlYWRsaW5lID0gdGltZS50aW1lKCkgKyA2MAoKZGVmIGZpbmlzaCgpOgogICAgdGltZS5zbGVlcCgwLjQpCiAgICBpZiBwcm9jLnBvbGwoKSBpcyBOb25lOgogICAgICAgIHByb2Muc2VuZF9zaWduYWwoc2lnbmFsLlNJR0lOVCkKICAgICAgICB0cnk6CiAgICAgICAgICAgIHByb2Mud2FpdCh0aW1lb3V0PTIwKQogICAgICAgIGV4Y2VwdCBzdWJwcm9jZXNzLlRpbWVvdXRFeHBpcmVkOgogICAgICAgICAgICBwcm9jLmtpbGwoKQogICAgICAgICAgICBwcm9jLndhaXQodGltZW91dD0xMCkKICAgIHByaW50KCJyZWNvcmRlcjogc3RvcHBlZCIsIGZsdXNoPVRydWUpCgp3aGlsZSBUcnVlOgogICAgaWYgKHJvb3QgLyAicmVjb3JkLXN0b3AiKS5leGlzdHMoKSBvciAocm9vdCAvICJyZWNvcmQtY2FuY2VsIikuZXhpc3RzKCk6CiAgICAgICAgZmluaXNoKCkKICAgICAgICBicmVhawogICAgdHJ5OgogICAgICAgIHJlYWRhYmxlLCBfLCBfID0gc2VsZWN0LnNlbGVjdChbbWFzdGVyXSwgW10sIFtdLCAwLjIpCiAgICBleGNlcHQgKFZhbHVlRXJyb3IsIE9TRXJyb3IpOgogICAgICAgIGZpbmlzaCgpCiAgICAgICAgYnJlYWsKICAgIGlmIHJlYWRhYmxlOgogICAgICAgIHRyeToKICAgICAgICAgICAgY2h1bmsgPSBvcy5yZWFkKG1hc3RlciwgODE5MikKICAgICAgICBleGNlcHQgT1NFcnJvcjoKICAgICAgICAgICAgY2h1bmsgPSBiIiIKICAgICAgICBpZiBjaHVuazoKICAgICAgICAgICAgbG9nZi53cml0ZShjaHVuaykKICAgICAgICAgICAgbG9nZi5mbHVzaCgpCiAgICAgICAgICAgIHN5cy5zdGRvdXQuYnVmZmVyLndyaXRlKGNodW5rKQogICAgICAgICAgICBzeXMuc3Rkb3V0LmJ1ZmZlci5mbHVzaCgpCiAgICAgICAgICAgIGJ1ZiArPSBjaHVuawogICAgICAgICAgICBpZiBub3QgbGl2ZSBhbmQgYiJSZWNvcmRpbmcgc3RhcnRlZCIgaW4gYnVmOgogICAgICAgICAgICAgICAgKHJvb3QgLyAicmVjb3JkLXN0YXJ0LnRpbWUiKS53cml0ZV90ZXh0KGYie3RpbWUudGltZSgpOi42Zn1cbiIpCiAgICAgICAgICAgICAgICAocm9vdCAvICJyZWNvcmRpbmctbGl2ZSIpLndyaXRlX3RleHQoIjFcbiIpCiAgICAgICAgICAgICAgICBsaXZlID0gVHJ1ZQogICAgICAgICAgICAgICAgcHJpbnQoIlxucmVjb3JkZXI6IGxpdmUiLCBmbHVzaD1UcnVlKQogICAgICAgIGVsaWYgcHJvYy5wb2xsKCkgaXMgbm90IE5vbmU6CiAgICAgICAgICAgIHByaW50KCJyZWNvcmRlcjogcmVjb3JkVmlkZW8gZXhpdGVkIGJlZm9yZSBzdG9wIiwgZmx1c2g9VHJ1ZSkKICAgICAgICAgICAgYnJlYWsKICAgIGlmIG5vdCBsaXZlIGFuZCBub3Qgd2FybmVkIGFuZCB0aW1lLnRpbWUoKSA+PSBkZWFkbGluZToKICAgICAgICB3YXJuZWQgPSBUcnVlCiAgICAgICAgcHJpbnQoInJlY29yZGVyOiBSZWNvcmRpbmcgc3RhcnRlZCBkaWQgbm90IGFwcGVhciB3aXRoaW4gNjBzIiwgZmx1c2g9VHJ1ZSkK"))'
+            python3 /tmp/wavecatch-recorder.py
           ) &
           WATCH_PID=$!
           xcodebuild test-without-building \
@@ -213,7 +204,7 @@ jobs:
           TRIM=""
           if [ -f /tmp/wavecatch-proof/restart.time ] && [ -f /tmp/wavecatch-proof/record-start.time ]; then
             TRIM=$(python3 -c 'start=float(open("/tmp/wavecatch-proof/record-start.time").read()); restart=float(open("/tmp/wavecatch-proof/restart.time").read()); print(f"{max(1.0, restart-start+3.0):.3f}")')
-            echo "trim gameplay to ${TRIM}s (3s after restart)"
+            echo "trim gameplay to ${TRIM}s (menu through 3s after restart)"
           fi
           if [ -n "$TRIM" ]; then
             bash "$GITHUB_WORKSPACE/Scripts/compress-proof.sh" /tmp/wavecatch-proof/raw.mp4 /tmp/wavecatch-proof/silent.mp4 "$TRIM"
@@ -271,7 +262,7 @@ jobs:
             fi
           done
           ls -lh "$GITHUB_WORKSPACE/docs/proof" || true
-          for name in 01-menu 02-midgame 03-catch 04-golden 05-gameover 06-restart 07-landing-ring; do
+          for name in 01-menu 02-pool 03-catch 04-golden 05-gameover 06-restart 07-swell-ring; do
             if [ ! -f "$GITHUB_WORKSPACE/docs/proof/${name}.png" ]; then
               echo "missing ${name}.png"
               if [ "$STATUS" -eq 0 ]; then
